@@ -1,0 +1,20 @@
+﻿# Auto detect text files and perform LF normalization
+* text=auto
+
+# C# source files
+*.cs text diff=csharp
+
+# Batch files (must be CRLF on Windows)
+*.bat text eol=crlf
+
+# Markdown
+*.md text
+
+# JSON
+*.json text
+
+# Git ignore
+.gitignore text
+
+# Git attributes
+.gitattributes text

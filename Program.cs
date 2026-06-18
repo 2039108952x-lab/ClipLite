@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace ClipLite
 {
@@ -19,7 +23,7 @@ namespace ClipLite
             if (!firstInstance)
             {
                 _mutex.Close();
-                MessageBox.Show("ClipLite 已在运行中。", "ClipLite",
+                MessageBox.Show("ClipLite is already running.", "ClipLite",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -42,7 +46,9 @@ namespace ClipLite
         private HistoryForm _historyForm;
         private ClipboardMonitor _clipboardMonitor;
         private HotkeyManager _hotkeyManager;
-        private JsonStorage _storage;
+        private SafeStorage _storage;
+        private ClipLiteSettings _settings;
+        private ThumbnailCache _thumbCache;
         private bool _paused;
         private Icon _appIcon;
 
@@ -50,24 +56,60 @@ namespace ClipLite
         {
             CreateAppIcon();
 
-            _storage = new JsonStorage();
+            // ── Initialize storage ──
+            _storage = new SafeStorage();
+
+            // ── Load settings ──
+            _settings = ClipLiteSettings.Load();
+
+            // V1 → V2 migration
+            if (_storage.HasV1Data())
+            {
+                var migrated = _storage.MigrateFromV1();
+                if (migrated != null)
+                {
+                    // Migration successful
+                }
+            }
+
             var savedEntries = _storage.Load();
 
+            // Clean up orphaned assets after loading
+            _storage.CleanupOrphans(savedEntries);
+
+            // ── Initialize thumbnail cache ──
+            _thumbCache = new ThumbnailCache();
+
+            // ── Initialize clipboard monitor ──
             _clipboardMonitor = new ClipboardMonitor();
+
+            // Apply settings to monitor
+            _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
+            ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
+            _clipboardMonitor.CaptureMode = _settings.CaptureMode;
+            SetAutoStart(_settings.AutoStart);
+            ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
+
+            // Apply encryption key to storage
+            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
             var knownHashes = new HashSet<string>(savedEntries.Select(e => e.Id));
             _clipboardMonitor.SetKnownHashes(knownHashes);
-            _clipboardMonitor.ClipboardTextChanged += OnClipboardTextChanged;
+            _clipboardMonitor.ClipboardDataAvailable += OnClipboardData;
 
+            // ── Hotkey ──
             _hotkeyManager = new HotkeyManager();
             _clipboardMonitor.WindowMessageReceived += OnWindowMessage;
             _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
             _clipboardMonitor.EnsureHandle();
             _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
 
-            _historyForm = new HistoryForm();
+            // ── History form ──
+            _historyForm = new HistoryForm(_storage, _thumbCache);
             _historyForm.SetEntries(savedEntries);
             _historyForm.ItemSelected += OnItemSelected;
+            _historyForm.EntryCopied += OnEntryCopied;
 
+            // ── Tray icon ──
             _trayIcon = new NotifyIcon
             {
                 Icon = _appIcon,
@@ -82,11 +124,14 @@ namespace ClipLite
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("清空历史", null, (s, e) => ClearHistory());
             trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("设置", null, (s, e) => ShowSettings());
+            trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("退出", null, (s, e) => ExitApp());
 
             _trayIcon.ContextMenuStrip = trayMenu;
             _trayIcon.DoubleClick += (s, e) => ShowHistory();
 
+            // ── Capture current clipboard at startup ──
             TryCaptureCurrentClipboard();
         }
 
@@ -123,6 +168,199 @@ namespace ClipLite
             }
         }
 
+        // ── Multi-format clipboard handler ──
+
+        private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
+        {
+            if (_paused) return;
+
+            // Determine primary type
+            string primaryType = "text";
+            if (formats.HasFlag(ClipboardFormatFlags.Image)) primaryType = "image";
+            else if (formats.HasFlag(ClipboardFormatFlags.FileList)) primaryType = "filelist";
+            else if (formats.HasFlag(ClipboardFormatFlags.RichText)) primaryType = "richtext";
+            else if (formats.HasFlag(ClipboardFormatFlags.Html)) primaryType = "html";
+
+            string fallbackText = text ?? "";
+
+            // Hash dedup based on primary content
+            string hash = null;
+            if (primaryType == "text" || primaryType == "richtext" || primaryType == "html")
+            {
+                hash = _clipboardMonitor.ComputeHash(fallbackText);
+            }
+            else if (primaryType == "image" && image != null)
+            {
+                var hashData = ThumbnailCache.GetImageHashData(image);
+                if (hashData != null)
+                    hash = _clipboardMonitor.ComputeBlobHash(hashData);
+            }
+            else if (primaryType == "audio" && audio != null)
+            {
+                hash = _clipboardMonitor.ComputeBlobHash(audio);
+            }
+            else if (primaryType == "filelist" && files != null && files.Length > 0)
+            {
+                hash = _clipboardMonitor.ComputeHash(string.Join("|", files));
+            }
+
+            if (string.IsNullOrEmpty(hash))
+                hash = Guid.NewGuid().ToString("N");
+
+            // Check dedup
+            if (_clipboardMonitor.IsKnownHash(hash))
+            {
+                _historyForm.MoveToTop(hash);
+                SaveHistory();
+                return;
+            }
+
+            // Build entry
+            var entry = new ClipboardEntry
+            {
+                Id = hash,
+                Type = primaryType,
+                Text = fallbackText,
+                Timestamp = DateTime.Now
+            };
+
+            // Handle each format
+            if (primaryType == "image" && image != null)
+            {
+                // Save as PNG
+                try
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        image.Save(ms, ImageFormat.Png);
+                        byte[] pngData = ms.ToArray();
+                        entry.Size = pngData.Length;
+                        entry.ImageFile = _storage.SaveAsset(hash, pngData, ".png");
+                        entry.ImageWidth = image.Width;
+                        entry.ImageHeight = image.Height;
+                    }
+                }
+                catch { }
+
+                // Clean up image
+                try { image.Dispose(); } catch { }
+            }
+            else if (primaryType == "filelist" && files != null && files.Length > 0)
+            {
+                entry.SetFilePaths(files);
+                entry.Size = entry.FilePathsRaw.Length;
+            }
+            else if (primaryType == "richtext" && rtf != null)
+            {
+                if (rtf.Length <= SafeStorage.InlineThreshold)
+                {
+                    entry.RtfData = rtf;
+                    entry.Size = rtf.Length * 2; // UTF-16 estimate
+                }
+                else
+                {
+                    string rtfHash = ClipboardEntry.ComputeSha1(rtf);
+                    byte[] rtfBytes = Encoding.UTF8.GetBytes(rtf);
+                    entry.RtfFile = _storage.SaveAsset(rtfHash, rtfBytes, ".rtf");
+                    entry.Size = rtfBytes.Length;
+                }
+                // Extract plain text for preview
+                entry.RtfPreview = ExtractRtfText(rtf);
+            }
+            else if (primaryType == "html" && html != null)
+            {
+                if (html.Length <= SafeStorage.InlineThreshold)
+                {
+                    entry.HtmlData = html;
+                    entry.Size = html.Length * 2;
+                }
+                else
+                {
+                    string htmlHash = ClipboardEntry.ComputeSha1(html);
+                    byte[] htmlBytes = Encoding.UTF8.GetBytes(html);
+                    entry.HtmlFile = _storage.SaveAsset(htmlHash, htmlBytes, ".html");
+                    entry.Size = htmlBytes.Length;
+                }
+            }
+            else
+            {
+                // Plain text
+                entry.Size = Encoding.UTF8.GetByteCount(fallbackText);
+            }
+
+            // Add to history
+
+            // Store source file paths when available (for all types)
+            if (files != null && files.Length > 0 && string.IsNullOrEmpty(entry.FilePathsRaw))
+            {
+                entry.SetFilePaths(files);
+                if (entry.Size == 0)
+                    entry.Size = entry.FilePathsRaw.Length;
+            }
+            _historyForm.AddEntry(entry);
+            _clipboardMonitor.AddHash(hash);
+
+            SaveHistory();
+        }
+
+        private string ExtractRtfText(string rtf)
+        {
+            if (string.IsNullOrEmpty(rtf)) return "";
+            try
+            {
+                using (var rtb = new RichTextBox())
+                {
+                    rtb.Rtf = rtf;
+                    string text = rtb.Text;
+                    if (text.Length > 200) text = text.Substring(0, 200);
+                    return text;
+                }
+            }
+            catch { return ""; }
+        }
+
+        // ── Clipboard operations ──
+
+        private void OnItemSelected(string text)
+        {
+            // Backward compat — handled by EntryCopied
+        }
+
+        private void OnEntryCopied(ClipboardEntry entry)
+        {
+            switch (entry.Type)
+            {
+                case "text":
+                case "richtext":
+                case "html":
+                    _clipboardMonitor.CopyText(entry.Text ?? "");
+                    break;
+
+                case "image":
+                    if (!string.IsNullOrEmpty(entry.ImageFile))
+                    {
+                        byte[] imgData = _storage.LoadAsset(entry.ImageFile);
+                        if (imgData != null)
+                        {
+                            using (var ms = new MemoryStream(imgData))
+                            using (var img = Image.FromStream(ms))
+                            {
+                                _clipboardMonitor.CopyImage(img);
+                            }
+                        }
+                    }
+                    break;
+
+                case "filelist":
+                    var paths = entry.GetFilePaths();
+                    if (paths.Length > 0)
+                        _clipboardMonitor.CopyFilePaths(paths);
+                    break;
+            }
+        }
+
+        // ── Startup clipboard capture ──
+
         private void TryCaptureCurrentClipboard()
         {
             try
@@ -135,12 +373,10 @@ namespace ClipLite
                         string hash = _clipboardMonitor.ComputeHash(text);
                         if (!_clipboardMonitor.IsKnownHash(hash))
                         {
-                            var entry = new ClipboardEntry(text);
-                            entry.Id = hash;
+                            var entry = new ClipboardEntry { Id = hash, Text = text, Timestamp = DateTime.Now };
+                                                        entry.Size = Encoding.UTF8.GetByteCount(text);
                             _historyForm.AddEntry(entry);
-                            var allEntries = _historyForm.GetAllEntries();
-                            _clipboardMonitor.SetKnownHashes(
-                                new HashSet<string>(allEntries.Select(e => e.Id)));
+                            _clipboardMonitor.AddHash(hash);
                             SaveHistory();
                         }
                     }
@@ -149,32 +385,9 @@ namespace ClipLite
             catch { }
         }
 
-        private void OnClipboardTextChanged(string text)
-        {
-            if (_paused) return;
+        // ── UI events ──
 
-            string hash = _clipboardMonitor.ComputeHash(text);
-            if (_clipboardMonitor.IsKnownHash(hash))
-            {
-                _historyForm.MoveToTop(hash);
-                SaveHistory();
-                return;
-            }
-
-            var entry = new ClipboardEntry(text);
-            entry.Id = hash;
-            _historyForm.AddEntry(entry);
-
-            var allEntries = _historyForm.GetAllEntries();
-            _clipboardMonitor.SetKnownHashes(
-                new HashSet<string>(allEntries.Select(e => e.Id)));
-            SaveHistory();
-        }
-
-        private void OnHotkeyPressed()
-        {
-            ShowHistory();
-        }
+        private void OnHotkeyPressed() { ShowHistory(); }
 
         private void ShowHistory()
         {
@@ -192,12 +405,10 @@ namespace ClipLite
 
             if (x + _historyForm.Width > screen.Right)
                 x = screen.Right - _historyForm.Width - 10;
-            if (x < screen.Left)
-                x = screen.Left + 10;
+            if (x < screen.Left) x = screen.Left + 10;
             if (y + _historyForm.Height > screen.Bottom)
                 y = screen.Bottom - _historyForm.Height - 10;
-            if (y < screen.Top)
-                y = screen.Top + 10;
+            if (y < screen.Top) y = screen.Top + 10;
 
             _historyForm.Location = new Point(x, y);
             _historyForm.Show();
@@ -205,22 +416,12 @@ namespace ClipLite
             _historyForm.FocusSearch();
         }
 
-        private void OnItemSelected(string text)
-        {
-            _clipboardMonitor.SkipNextUpdate();
-            try
-            {
-                Clipboard.SetText(text);
-            }
-            catch { }
-        }
-
         private void TogglePause()
         {
             _paused = !_paused;
             if (_paused)
             {
-                _trayIcon.Text = "ClipLite (已暂停)";
+                _trayIcon.Text = "ClipLite (Paused)";
                 _trayIcon.ContextMenuStrip.Items[2].Text = "恢复监听";
             }
             else
@@ -232,7 +433,7 @@ namespace ClipLite
 
         private void ClearHistory()
         {
-            if (MessageBox.Show("确定清空所有剪贴板历史？", "ClipLite",
+            if (MessageBox.Show("Clear all clipboard history?", "ClipLite",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
                 _historyForm.ClearEntries();
@@ -246,17 +447,57 @@ namespace ClipLite
             _storage.Save(_historyForm.GetAllEntries());
         }
 
+
+        private void ShowSettings()
+        {
+            using (var form = new SettingsForm(_settings, OnSettingsChanged, _storage))
+            {
+                form.ShowDialog();
+                if (form.Tag as string == "clear")
+                {
+                    _historyForm.ClearEntries();
+                    _clipboardMonitor.SetKnownHashes(new HashSet<string>());
+                    SaveHistory();
+                }
+            }
+        }
+
+        private void OnSettingsChanged(ClipLiteSettings newSettings)
+        {
+            _settings = newSettings;
+            _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
+            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
+            ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
+            _clipboardMonitor.CaptureMode = _settings.CaptureMode;
+            SetAutoStart(_settings.AutoStart);
+        }
+
+        private void SetAutoStart(bool enabled)
+        {
+            try
+            {
+                string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(keyPath, true))
+                {
+                    if (key == null) return;
+                    if (enabled)
+                        key.SetValue("ClipLite", Application.ExecutablePath);
+                    else
+                        key.DeleteValue("ClipLite", false);
+                }
+            }
+            catch { }
+        }
         private void ExitApp()
         {
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
             _clipboardMonitor.Dispose();
+            _thumbCache.Dispose();
             _historyForm.Dispose();
             if (_appIcon != null)
-            {
                 _appIcon.Dispose();
-            }
             Application.Exit();
         }
 
@@ -267,4 +508,8 @@ namespace ClipLite
         }
     }
 }
+
+
+
+
 

@@ -8,7 +8,7 @@ set REFS=/reference:System.Windows.Forms.dll /reference:System.Drawing.dll /refe
 set FLAGS=/target:winexe /optimize+ /langversion:Default /nologo
 
 echo Compiling ClipLite...
-"%CSC%" %FLAGS% %REFS% /out:ClipLite.exe Program.cs Models.cs Services.cs HistoryForm.cs
+"%CSC%" %FLAGS% %REFS% /out:ClipLite.exe Program.cs Models.cs Services.cs HistoryForm.cs ThumbnailCache.cs Settings.cs SettingsForm.cs
 
 if %ERRORLEVEL% equ 0 (
     echo.

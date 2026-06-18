@@ -13,12 +13,23 @@ namespace ClipLite
         private Label _closeBtn;
         private List<ClipboardEntry> _allEntries = new List<ClipboardEntry>();
         private List<ClipboardEntry> _filteredEntries = new List<ClipboardEntry>();
+        private ThumbnailCache _thumbCache;
+        private SafeStorage _storage;
+        private Dictionary<string, Image> _thumbCacheLocal = new Dictionary<string, Image>();
+        private int _hoveredIndex = -1;
 
         public event Action<string> ItemSelected;
+#pragma warning disable 67  // EntryCopied is subscribed externally
+        public event Action<ClipboardEntry> EntryCopied;
 
-        public HistoryForm()
+#pragma warning restore 67
+
+        public HistoryForm(SafeStorage storage, ThumbnailCache thumbCache)
         {
             InitializeComponent();
+            _storage = storage;
+
+            _thumbCache = thumbCache;
             UpdateFilter();
         }
 
@@ -33,7 +44,7 @@ namespace ClipLite
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.TopMost = true;
-            this.Width = 420;
+            this.Width = 520;
             this.Height = 500;
             this.StartPosition = FormStartPosition.Manual;
             this.BackColor = Color.FromArgb(250, 250, 250);
@@ -73,8 +84,8 @@ namespace ClipLite
 
             _searchBox = new TextBox
             {
-                Location = new Point(10, 44),
-                Width = 400,
+                Location = new Point(6, 44),
+                Width = 508,
                 Height = 30,
                 Font = new Font("Segoe UI", 11),
                 BorderStyle = BorderStyle.FixedSingle,
@@ -85,8 +96,8 @@ namespace ClipLite
 
             _listBox = new ListBox
             {
-                Location = new Point(10, 82),
-                Width = 400,
+                Location = new Point(6, 82),
+                Width = 508,
                 Height = 408,
                 BorderStyle = BorderStyle.None,
                 DrawMode = DrawMode.OwnerDrawVariable,
@@ -97,9 +108,10 @@ namespace ClipLite
             _listBox.DrawItem += OnDrawItem;
             _listBox.MeasureItem += OnMeasureItem;
             _listBox.MouseDoubleClick += (s, e) => { var idx = _listBox.IndexFromPoint(e.Location); if (idx >= 0) SelectItem(idx); };
+            _listBox.MouseClick += OnListMouseClick;
             _listBox.KeyDown += OnListKeyDown;
             _listBox.MouseMove += OnListMouseMove;
-            _listBox.MouseLeave += (s, e) => _listBox.Invalidate();
+            _listBox.MouseLeave += (s, e) => { _hoveredIndex = -1; _listBox.Invalidate(); };
             _listBox.SelectedIndexChanged += (s, e) => _listBox.Invalidate();
 
             this.Controls.Add(titleBar);
@@ -132,7 +144,7 @@ namespace ClipLite
         public void AddEntry(ClipboardEntry entry)
         {
             _allEntries.Insert(0, entry);
-            if (_allEntries.Count > JsonStorage.MaxEntries)
+            if (_allEntries.Count > SafeStorage.MaxEntries)
                 _allEntries.RemoveAt(_allEntries.Count - 1);
             UpdateFilter();
         }
@@ -259,6 +271,16 @@ namespace ClipLite
         private void OnListMouseMove(object sender, MouseEventArgs e)
         {
             int idx = _listBox.IndexFromPoint(e.Location);
+            
+            // Track hover for button display
+            if (idx != _hoveredIndex)
+            {
+                int oldIdx = _hoveredIndex;
+                _hoveredIndex = idx;
+                if (oldIdx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(oldIdx));
+                if (idx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(idx));
+            }
+            
             if (idx >= 0 && idx < _listBox.Items.Count && _listBox.SelectedIndex != idx)
             {
                 _listBox.SelectedIndex = idx;
@@ -270,6 +292,7 @@ namespace ClipLite
             if (index < 0 || index >= _filteredEntries.Count) return;
             var entry = _filteredEntries[index];
             if (ItemSelected != null) ItemSelected(entry.Text);
+            if (EntryCopied != null) EntryCopied(entry);
             Hide();
         }
 
@@ -292,9 +315,9 @@ namespace ClipLite
             using (var sepPen = new Pen(Color.FromArgb(235, 235, 235)))
                 g.DrawLine(sepPen, bounds.X + 8, bounds.Bottom - 1, bounds.Right - 8, bounds.Bottom - 1);
 
-            int x = bounds.X + 10;
+            int x = bounds.X + 6;
             int y = bounds.Y + 5;
-            int maxW = bounds.Width - 20;
+            int maxW = bounds.Width - 12;
 
             if (entry.IsPinned)
             {
@@ -319,6 +342,58 @@ namespace ClipLite
             using (var timeFont = new Font("Segoe UI", 8))
             {
                 g.DrawString(entry.TimeDisplay, timeFont, timeBrush, x, bounds.Bottom - 18);
+            }
+            // Hover buttons (copy + delete, shown only on hovered item)
+            if (e.Index == _hoveredIndex && _hoveredIndex >= 0)
+            {
+                var copyRect = GetCopyButtonRect(e.Index);
+                var delRect = GetDeleteButtonRect(e.Index);
+                using (var btnBg = new SolidBrush(Color.FromArgb(245, 245, 245)))
+                using (var btnBorder = new Pen(Color.FromArgb(200, 200, 200)))
+                using (var copyBrush = new SolidBrush(Color.FromArgb(0, 100, 200)))
+                using (var delBrush = new SolidBrush(Color.FromArgb(200, 60, 60)))
+                using (var btnFont = new Font("Segoe UI", 8))
+                {                    g.FillRectangle(btnBg, copyRect);
+                    g.DrawRectangle(btnBorder, copyRect);
+                    g.DrawString("复制", btnFont, copyBrush, copyRect.X + 2, copyRect.Y + 3);
+                    g.FillRectangle(btnBg, delRect);
+                    g.DrawRectangle(btnBorder, delRect);
+                    g.DrawString("删除", btnFont, delBrush, delRect.X + 2, delRect.Y + 3);
+                }
+            }
+        }
+
+        private Rectangle GetCopyButtonRect(int index)
+        {
+            if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
+            var bounds = _listBox.GetItemRectangle(index);
+            return new Rectangle(bounds.Right - 76, bounds.Y + 4, 36, 20);
+        }
+
+        private Rectangle GetDeleteButtonRect(int index)
+        {
+            if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
+            var bounds = _listBox.GetItemRectangle(index);
+            return new Rectangle(bounds.Right - 36, bounds.Y + 4, 36, 20);
+        }
+
+        private void OnListMouseClick(object sender, MouseEventArgs e)
+        {
+            int idx = _listBox.IndexFromPoint(e.Location);
+            if (idx < 0 || idx >= _listBox.Items.Count) return;
+            if (idx != _hoveredIndex) return;
+            var copyRect = GetCopyButtonRect(idx);
+            var delRect = GetDeleteButtonRect(idx);
+            if (delRect.Contains(e.Location))
+            {
+                var entry = _filteredEntries[idx];
+                RemoveEntry(entry.Id);
+                return;
+            }
+            if (copyRect.Contains(e.Location))
+            {
+                SelectItem(idx);
+                return;
             }
         }
 
@@ -346,4 +421,8 @@ namespace ClipLite
         }
     }
 }
+
+
+
+
 

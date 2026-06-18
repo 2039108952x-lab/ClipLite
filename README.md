@@ -1,8 +1,12 @@
 ﻿# ClipLite - 极致轻量剪贴板管理器
 
+
+> [English](README_EN.md) | [中文](README.md)
 [![.NET Framework 4.8](https://img.shields.io/badge/.NET%20Framework-4.8-blue)](https://dotnet.microsoft.com/download/dotnet-framework/net48)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
+
+![screenshot](screenshot.png)
 ---
 
 ## 简介
@@ -222,3 +226,4 @@ build.bat
 ## License
 
 MIT
+

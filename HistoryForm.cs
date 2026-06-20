@@ -510,8 +510,11 @@ namespace ClipLite
             if (_instance == null || _instance.IsDisposed)
             {
                 _instance = new ToastForm();
-                _instance.Show();
             }
+
+            // Ensure the form is visible (it may have been hidden by timer or click)
+            if (!_instance.Visible)
+                _instance.Show();
 
             string text = "✓ 已复制";
             if (!string.IsNullOrEmpty(typeLabel))

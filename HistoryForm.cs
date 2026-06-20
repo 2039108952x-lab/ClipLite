@@ -239,6 +239,7 @@ namespace ClipLite
             }
 
             _listBox.BeginUpdate();
+            _hoveredIndex = -1; // reset stale hover index to avoid crash on GetItemRectangle
             _listBox.Items.Clear();
             foreach (var entry in _filteredEntries)
                 _listBox.Items.Add(entry);
@@ -297,8 +298,12 @@ namespace ClipLite
             {
                 int oldIdx = _hoveredIndex;
                 _hoveredIndex = idx;
-                if (oldIdx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(oldIdx));
-                if (idx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(idx));
+                
+                // Guard: InvalidateItem only if the index is within current bounds
+                if (oldIdx >= 0 && oldIdx < _listBox.Items.Count)
+                    _listBox.Invalidate(_listBox.GetItemRectangle(oldIdx));
+                if (idx >= 0 && idx < _listBox.Items.Count)
+                    _listBox.Invalidate(_listBox.GetItemRectangle(idx));
             }
         }
 

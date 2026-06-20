@@ -17,29 +17,6 @@ namespace ClipLite
         [STAThread]
         static void Main()
         {
-            // Kill any previously running ClipLite process to ensure clean restart
-            try
-            {
-                foreach (var p in System.Diagnostics.Process.GetProcessesByName("ClipLite"))
-                {
-                    if (p.Id != System.Diagnostics.Process.GetCurrentProcess().Id)
-                    {
-                        p.Kill();
-                        p.WaitForExit(2000);
-                    }
-                }
-            }
-            catch { }
-
-            // ── ULTIMATE DIAGNOSTIC: MessageBox on EVERY startup ──
-            MessageBox.Show(
-                "ClipLite 诊断版已启动\n" +
-                "EXE: " + typeof(Program).Assembly.Location + "\n" +
-                "时间: " + DateTime.Now.ToString("HH:mm:ss"),
-                "ClipLite 诊断",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-
             bool firstInstance;
             _mutex = new System.Threading.Mutex(true, "ClipLite-Singleton-Mutex", out firstInstance);
 
@@ -77,16 +54,6 @@ namespace ClipLite
 
         public ClipLiteContext()
         {
-            // ── DIAGNOSTIC: write log to DESKTOP (easy to find) ──
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            try { System.IO.File.WriteAllText(
-                System.IO.Path.Combine(desktop, "ClipLite_启动日志.txt"),
-                "ClipLite started at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
-                + "\r\nEXE path: " + typeof(Program).Assembly.Location); } catch { }
-
-            // ── Play startup sound to confirm new EXE is running ──
-            try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
-
             CreateAppIcon();
 
             // ── Initialize storage ──
@@ -193,23 +160,17 @@ namespace ClipLite
                     g.Clear(Color.Transparent);
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    // Green checkmark icon — NEW version indicator
-                    using (var pen = new Pen(Color.FromArgb(0, 180, 80), 2f))
+                    using (var pen = new Pen(Color.FromArgb(0, 120, 215), 1.5f))
                     {
-                        // Checkmark shape
-                        g.DrawLine(pen, 2, 8, 6, 13);
-                        g.DrawLine(pen, 6, 13, 14, 3);
+                        g.DrawRectangle(pen, 2, 2, 12, 12);
+                        g.DrawLine(pen, 5, 5, 11, 5);
+                        g.DrawLine(pen, 5, 8, 11, 8);
+                        g.DrawLine(pen, 5, 11, 9, 11);
                     }
 
-                    using (var brush = new SolidBrush(Color.FromArgb(0, 180, 80)))
+                    using (var brush = new SolidBrush(Color.FromArgb(0, 120, 215)))
                     {
-                        g.FillEllipse(brush, 1, 1, 14, 14);
-                        // White checkmark on green circle
-                        using (var whitePen = new Pen(Color.White, 2.5f))
-                        {
-                            g.DrawLine(whitePen, 4, 8, 7, 12);
-                            g.DrawLine(whitePen, 7, 12, 13, 4);
-                        }
+                        g.FillRectangle(brush, 5, 1, 6, 2);
                     }
                 }
 

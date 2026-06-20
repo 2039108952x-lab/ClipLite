@@ -57,6 +57,17 @@ namespace ClipLite
         {
             CreateAppIcon();
 
+            // ── Startup marker on desktop ──
+            try
+            {
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(desktop, "ClipLite_已启动.txt"),
+                    "ClipLite 已启动: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                    + "\r\nEXE: " + typeof(Program).Assembly.Location);
+            }
+            catch { }
+
             // ── Initialize storage ──
             _storage = new SafeStorage();
 
@@ -210,6 +221,8 @@ namespace ClipLite
         {
             // Visual: tray icon → green checkmark
             FlashIcon();
+            // Desktop file notification
+            WriteCopyMarker("已捕获");
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已捕获"); } catch { }
 
@@ -402,6 +415,8 @@ namespace ClipLite
 
             // Visual: tray icon → green checkmark
             FlashIcon();
+            // Desktop file notification
+            WriteCopyMarker("已复制");
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已复制"); } catch { }
         }
@@ -453,6 +468,21 @@ namespace ClipLite
                     try { _trayIcon.Icon = _appIcon; } catch { }
                 };
                 t.Start();
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Write a timestamped file to the desktop — the most reliable notification possible.
+        /// </summary>
+        private void WriteCopyMarker(string action)
+        {
+            try
+            {
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(desktop, "ClipLite_已复制.txt"),
+                    "ClipLite " + action + ": " + DateTime.Now.ToString("HH:mm:ss.fff"));
             }
             catch { }
         }

@@ -115,6 +115,7 @@ namespace ClipLite
             _historyForm.SetEntries(savedEntries);
             _historyForm.ItemSelected += OnItemSelected;
             _historyForm.EntryCopied += OnEntryCopied;
+            ToastForm.ToastEnabled = _settings.ShowCopyToast;
 
             // ── Tray icon ──
             _trayIcon = new NotifyIcon
@@ -367,6 +368,14 @@ namespace ClipLite
                         _clipboardMonitor.CopyFilePaths(paths);
                     break;
             }
+
+            // Show copy confirmation toast
+            string typeLabel = "文本";
+            if (entry.Type == "image") typeLabel = "图片";
+            else if (entry.Type == "filelist") typeLabel = "文件";
+            else if (entry.Type == "richtext") typeLabel = "富文本";
+            else if (entry.Type == "html") typeLabel = "HTML";
+            ToastForm.ShowToast(typeLabel);
         }
 
         // ── Startup clipboard capture ──
@@ -480,6 +489,7 @@ namespace ClipLite
             _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
             _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
             ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
+            ToastForm.ToastEnabled = _settings.ShowCopyToast;
             if (_hotkeyManager.Modifiers != _settings.HotkeyModifiers || _hotkeyManager.KeyCode != _settings.HotkeyKey)
             {
                 _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);

@@ -480,4 +480,96 @@ namespace ClipLite
             DoubleBuffered = true;
         }
     }
+
+    /// <summary>
+    /// Lightweight toast notification — "✓ 已复制" at screen bottom-center.
+    /// Auto-dismisses after 1.2s or on click.
+    /// </summary>
+    internal class ToastForm : Form
+    {
+        private Timer _timer;
+        private static bool _toastEnabled = true;
+
+        public static bool ToastEnabled
+        {
+            get { return _toastEnabled; }
+            set { _toastEnabled = value; }
+        }
+
+        public static void ShowToast(string typeLabel)
+        {
+            if (!ToastEnabled) return;
+            var toast = new ToastForm(typeLabel);
+            toast.Show();
+        }
+
+        private ToastForm(string typeLabel)
+        {
+            int screenW = Screen.PrimaryScreen.WorkingArea.Width;
+            int screenH = Screen.PrimaryScreen.WorkingArea.Height;
+
+            string text = "✓ 已复制";
+            if (!string.IsNullOrEmpty(typeLabel))
+                text += " (" + typeLabel + ")";
+
+            using (var g = Graphics.FromHwnd(IntPtr.Zero))
+            {
+                var textSize = g.MeasureString(text, new Font("Segoe UI", 11));
+                int pad = 18;
+                this.Width = (int)textSize.Width + pad * 2;
+                this.Height = 44;
+                this.Location = new Point(
+                    (screenW - this.Width) / 2,
+                    screenH - this.Height - 50);
+            }
+
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.ShowInTaskbar = false;
+            this.TopMost = true;
+            this.StartPosition = FormStartPosition.Manual;
+            this.BackColor = Color.FromArgb(50, 50, 50);
+            this.Opacity = 0.92;
+
+            var lbl = new Label
+            {
+                Text = text,
+                Font = new Font("Segoe UI", 11, FontStyle.Regular),
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Dock = DockStyle.Fill,
+                Cursor = Cursors.Hand
+            };
+            lbl.Click += (s, e) => Close();
+            this.Controls.Add(lbl);
+
+            this.Click += (s, e) => Close();
+
+            _timer = new Timer { Interval = 1200 };
+            _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
+            _timer.Start();
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int CS_DROPSHADOW = 0x00020000;
+                var cp = base.CreateParams;
+                cp.ClassStyle |= CS_DROPSHADOW;
+                return cp;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _timer != null)
+            {
+                _timer.Stop();
+                _timer.Dispose();
+                _timer = null;
+            }
+            base.Dispose(disposing);
+        }
+    }
 }

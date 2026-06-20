@@ -15,6 +15,7 @@ namespace ClipLite
         public uint HotkeyModifiers { get; set; }
         public uint HotkeyKey { get; set; }
         public bool EnableEncryption { get; set; }
+        public bool ShowCopyToast { get; set; }
         public string EncryptionKey { get; set; }   // Base64, empty = auto-gen on enable
         public int MaxEntries { get; set; }
         public long MaxTotalSize { get; set; }
@@ -29,6 +30,7 @@ namespace ClipLite
         {
             ExcludedApps = new List<string>();
             EnableEncryption = false;
+            ShowCopyToast = true;
             EncryptionKey = "";
             MaxEntries = 500;
             MaxTotalSize = 50L * 1024 * 1024;
@@ -88,6 +90,7 @@ namespace ClipLite
             sb.Append(",\"hotkeyModifiers\":").Append(HotkeyModifiers);
             sb.Append(",\"hotkeyKey\":").Append(HotkeyKey);
             sb.Append(",\"enableEncryption\":").Append(EnableEncryption ? "true" : "false");
+            sb.Append(",\"showCopyToast\":").Append(ShowCopyToast ? "true" : "false");
             sb.Append(",\"encryptionKey\":\"").Append(SafeStorage.JsonEscape(EncryptionKey ?? "")).Append("\"");
             sb.Append(",\"excludedApps\":[");
             for (int i = 0; i < ExcludedApps.Count; i++)
@@ -116,6 +119,7 @@ namespace ClipLite
             s.HotkeyModifiers = (uint)SafeStorage.ExtractLong(json, "hotkeyModifiers");
             s.HotkeyKey = (uint)SafeStorage.ExtractLong(json, "hotkeyKey");
             s.EnableEncryption = SafeStorage.ExtractRaw(json, "enableEncryption") == "true";
+            s.ShowCopyToast = SafeStorage.ExtractRaw(json, "showCopyToast") != "false";
             s.EncryptionKey = SafeStorage.ExtractStr(json, "encryptionKey") ?? "";
 
             // Parse excluded apps array

@@ -15,6 +15,7 @@ namespace ClipLite
         private RadioButton _rdoFull, _rdoTextOnly;
         private CheckBox _chkAutoStart;
         private TextBox _txtHotkey;
+        private CheckBox _chkCopyToast;
         private uint _capturedModifiers = 6;
         private uint _capturedKey = 0x56;
         private ListBox _lstExcluded;
@@ -110,6 +111,16 @@ namespace ClipLite
             this.Controls.Add(_txtHotkey);
 
             y += 30;
+            _chkCopyToast = new CheckBox
+            {
+                Text = "复制成功时显示提示",
+                Checked = true,
+                Location = new Point(30, y),
+                AutoSize = true
+            };
+            this.Controls.Add(_chkCopyToast);
+
+            y += 26;
 
             // ── Excluded apps section ──
             var lblExclude = new Label { Text = "排除程序",
@@ -243,6 +254,7 @@ namespace ClipLite
             _capturedModifiers = _settings.HotkeyModifiers;
             _capturedKey = _settings.HotkeyKey;
             _txtHotkey.Text = GetHotkeyText(_capturedModifiers, _capturedKey);
+            _chkCopyToast.Checked = _settings.ShowCopyToast;
             _chkEncryption.Checked = _settings.EnableEncryption;
             _lstExcluded.Items.Clear();
             foreach (var app in _settings.ExcludedApps)
@@ -256,6 +268,7 @@ namespace ClipLite
             _settings.AutoStart = _chkAutoStart.Checked;
             _settings.HotkeyModifiers = _capturedModifiers;
             _settings.HotkeyKey = _capturedKey;
+            _settings.ShowCopyToast = _chkCopyToast.Checked;
             _settings.EnableEncryption = _chkEncryption.Checked;
             _settings.ExcludedApps.Clear();
             foreach (string item in _lstExcluded.Items)
@@ -364,6 +377,7 @@ namespace ClipLite
                     {
                         ExcludedApps = _settings.ExcludedApps,
                         EnableEncryption = _settings.EnableEncryption,
+                        ShowCopyToast = _settings.ShowCopyToast,
                         CaptureMode = _settings.CaptureMode,
                         HotkeyModifiers = _settings.HotkeyModifiers,
                         HotkeyKey = _settings.HotkeyKey,

@@ -17,6 +17,20 @@ namespace ClipLite
         [STAThread]
         static void Main()
         {
+            // Kill any previously running ClipLite process to ensure clean restart
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("ClipLite"))
+                {
+                    if (p.Id != System.Diagnostics.Process.GetCurrentProcess().Id)
+                    {
+                        p.Kill();
+                        p.WaitForExit(2000);
+                    }
+                }
+            }
+            catch { }
+
             bool firstInstance;
             _mutex = new System.Threading.Mutex(true, "ClipLite-Singleton-Mutex", out firstInstance);
 

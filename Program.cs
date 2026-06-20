@@ -51,6 +51,7 @@ namespace ClipLite
         private ThumbnailCache _thumbCache;
         private bool _paused;
         private Icon _appIcon;
+        private Icon _successIcon;
 
         public ClipLiteContext()
         {
@@ -177,14 +178,38 @@ namespace ClipLite
                 var hIcon = bmp.GetHicon();
                 _appIcon = Icon.FromHandle(hIcon);
             }
+
+            // ── Success icon (green checkmark) ──
+            using (var bmp = new Bitmap(16, 16))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.Transparent);
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+                    using (var brush = new SolidBrush(Color.FromArgb(0, 180, 80)))
+                    {
+                        g.FillEllipse(brush, 1, 1, 14, 14);
+                    }
+
+                    using (var pen = new Pen(Color.White, 2.5f))
+                    {
+                        g.DrawLine(pen, 4, 8, 7, 12);
+                        g.DrawLine(pen, 7, 12, 13, 4);
+                    }
+                }
+
+                var hSuccess = bmp.GetHicon();
+                _successIcon = Icon.FromHandle(hSuccess);
+            }
         }
 
         // ── Multi-format clipboard handler ──
 
         private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
         {
-            // Visual feedback: flash tray icon text
-            FlashTray("ClipLite - ✔");
+            // Visual: tray icon → green checkmark
+            FlashIcon();
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已捕获"); } catch { }
 
@@ -375,8 +400,8 @@ namespace ClipLite
                     break;
             }
 
-            // Visual feedback: flash tray icon text
-            FlashTray("ClipLite - ✔");
+            // Visual: tray icon → green checkmark
+            FlashIcon();
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已复制"); } catch { }
         }
@@ -412,21 +437,20 @@ namespace ClipLite
         private void OnHotkeyPressed(string source) { ShowHistory(); }
 
         /// <summary>
-        /// Temporarily change tray icon text as visual copy feedback.
-        /// Works without any system permissions — just changes a tooltip.
+        /// Swap tray icon to green checkmark for 1.5s, then revert to blue clipboard.
+        /// Visible in system tray without hovering — unlike tooltip text changes.
         /// </summary>
-        private void FlashTray(string text)
+        private void FlashIcon()
         {
             try
             {
-                string original = _trayIcon.Text;
-                _trayIcon.Text = text;
-                var t = new System.Windows.Forms.Timer { Interval = 1500 };
+                _trayIcon.Icon = _successIcon;
+                var t = new Timer { Interval = 1500 };
                 t.Tick += (s, e) =>
                 {
                     t.Stop();
                     t.Dispose();
-                    try { _trayIcon.Text = original; } catch { }
+                    try { _trayIcon.Icon = _appIcon; } catch { }
                 };
                 t.Start();
             }

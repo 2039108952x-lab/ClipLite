@@ -312,6 +312,14 @@ namespace ClipLite
             _clipboardMonitor.AddHash(hash);
 
             SaveHistory();
+
+            // Show toast for newly captured clipboard content
+            string label = "文本";
+            if (primaryType == "image") label = "图片";
+            else if (primaryType == "filelist") label = "文件";
+            else if (primaryType == "richtext") label = "富文本";
+            else if (primaryType == "html") label = "HTML";
+            ToastForm.ShowToast(label);
         }
 
         private string ExtractRtfText(string rtf)

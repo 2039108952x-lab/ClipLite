@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace ClipLite
@@ -487,45 +488,38 @@ namespace ClipLite
     /// </summary>
     internal class ToastForm : Form
     {
-        private Timer _timer;
-        private static bool _toastEnabled = true;
-        private static ToastForm _instance;
+        private System.Windows.Forms.Timer _timer;
         private Label _label;
+        private static bool _toastEnabled = true;
 
         public static bool ToastEnabled
         {
             get { return _toastEnabled; }
-            set
-            {
-                _toastEnabled = value;
-                if (!value && _instance != null && !_instance.IsDisposed)
-                    _instance.Close();
-            }
+            set { _toastEnabled = value; }
         }
 
         public static void ShowToast(string typeLabel)
         {
             if (!ToastEnabled) return;
 
-            if (_instance == null || _instance.IsDisposed)
+            // Post to UI thread's message queue so it runs AFTER the current
+            // event handler chain (click → copy → hide) fully completes.
+            SynchronizationContext.Current.Post(state =>
             {
-                _instance = new ToastForm();
-            }
+                var toast = new ToastForm();
+                string text = "✓ 已复制";
+                if (!string.IsNullOrEmpty(typeLabel))
+                    text += " (" + typeLabel + ")";
+                toast._label.Text = text;
 
-            // Ensure the form is visible (it may have been hidden by timer or click)
-            if (!_instance.Visible)
-                _instance.Show();
+                int screenW = Screen.PrimaryScreen.WorkingArea.Width;
+                int screenH = Screen.PrimaryScreen.WorkingArea.Height;
+                toast.Location = new Point(
+                    (screenW - toast.Width) / 2,
+                    screenH - toast.Height - 50);
 
-            string text = "✓ 已复制";
-            if (!string.IsNullOrEmpty(typeLabel))
-                text += " (" + typeLabel + ")";
-            _instance._label.Text = text;
-
-            // Restart timer
-            _instance._timer.Stop();
-            _instance._timer.Start();
-
-            _instance.BringToFront();
+                toast.Show();
+            }, null);
         }
 
         private ToastForm()
@@ -548,23 +542,13 @@ namespace ClipLite
                 Dock = DockStyle.Fill,
                 Cursor = Cursors.Hand
             };
-            _label.Click += (s, e) => Hide();
+            _label.Click += (s, e) => Close();
             this.Controls.Add(_label);
-            this.Click += (s, e) => Hide();
+            this.Click += (s, e) => Close();
 
-            _timer = new Timer { Interval = 1500 };
-            _timer.Tick += (s, e) => { _timer.Stop(); Hide(); };
-        }
-
-        protected override void OnLoad(EventArgs e)
-        {
-            base.OnLoad(e);
-            // Center at bottom of screen
-            int screenW = Screen.PrimaryScreen.WorkingArea.Width;
-            int screenH = Screen.PrimaryScreen.WorkingArea.Height;
-            this.Location = new Point(
-                (screenW - this.Width) / 2,
-                screenH - this.Height - 50);
+            _timer = new System.Windows.Forms.Timer { Interval = 1500 };
+            _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
+            _timer.Start();
         }
 
         protected override void Dispose(bool disposing)
@@ -575,8 +559,6 @@ namespace ClipLite
                 _timer.Dispose();
                 _timer = null;
             }
-            if (disposing && _instance == this)
-                _instance = null;
             base.Dispose(disposing);
         }
     }

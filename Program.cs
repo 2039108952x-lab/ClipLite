@@ -193,17 +193,23 @@ namespace ClipLite
                     g.Clear(Color.Transparent);
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    using (var pen = new Pen(Color.FromArgb(0, 120, 215), 1.5f))
+                    // Green checkmark icon — NEW version indicator
+                    using (var pen = new Pen(Color.FromArgb(0, 180, 80), 2f))
                     {
-                        g.DrawRectangle(pen, 2, 2, 12, 12);
-                        g.DrawLine(pen, 5, 5, 11, 5);
-                        g.DrawLine(pen, 5, 8, 11, 8);
-                        g.DrawLine(pen, 5, 11, 9, 11);
+                        // Checkmark shape
+                        g.DrawLine(pen, 2, 8, 6, 13);
+                        g.DrawLine(pen, 6, 13, 14, 3);
                     }
 
-                    using (var brush = new SolidBrush(Color.FromArgb(0, 120, 215)))
+                    using (var brush = new SolidBrush(Color.FromArgb(0, 180, 80)))
                     {
-                        g.FillRectangle(brush, 5, 1, 6, 2);
+                        g.FillEllipse(brush, 1, 1, 14, 14);
+                        // White checkmark on green circle
+                        using (var whitePen = new Pen(Color.White, 2.5f))
+                        {
+                            g.DrawLine(whitePen, 4, 8, 7, 12);
+                            g.DrawLine(whitePen, 7, 12, 13, 4);
+                        }
                     }
                 }
 

@@ -320,6 +320,7 @@ namespace ClipLite
             else if (primaryType == "richtext") label = "富文本";
             else if (primaryType == "html") label = "HTML";
             ToastForm.ShowToast(label);
+            try { _trayIcon.ShowBalloonTip(1500, "ClipLite", "✔ 已复制 (" + label + ")", ToolTipIcon.Info); } catch { }
         }
 
         private string ExtractRtfText(string rtf)
@@ -383,7 +384,11 @@ namespace ClipLite
             else if (entry.Type == "filelist") typeLabel = "文件";
             else if (entry.Type == "richtext") typeLabel = "富文本";
             else if (entry.Type == "html") typeLabel = "HTML";
+
+            // Primary: bottom-center toast form
             ToastForm.ShowToast(typeLabel);
+            // Fallback: tray balloon (guaranteed to appear on Windows)
+            try { _trayIcon.ShowBalloonTip(1500, "ClipLite", "✔ 已复制 (" + typeLabel + ")", ToolTipIcon.Info); } catch { }
         }
 
         // ── Startup clipboard capture ──

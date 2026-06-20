@@ -313,15 +313,15 @@ namespace ClipLite
 
             SaveHistory();
 
-            // Show toast for newly captured clipboard content
-            string label = "文本";
-            if (primaryType == "image") label = "图片";
-            else if (primaryType == "filelist") label = "文件";
-            else if (primaryType == "richtext") label = "富文本";
-            else if (primaryType == "html") label = "HTML";
-
-            // DIAGNOSTIC: MessageBox to verify code path is reached
-            MessageBox.Show("剪贴板已捕获: " + label, "ClipLite 诊断");
+            // ── DIAGNOSTIC: write log file ──
+            try { System.IO.File.WriteAllText(
+                System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
+                    "cliplite_debug.log"),
+                "OnClipboardData reached at " + DateTime.Now.ToString("HH:mm:ss.fff")
+                + "\r\nprimaryType=" + (primaryType ?? "null")
+                + "\r\nhash=" + (hash ?? "null")
+                + "\r\npaused=" + _paused); } catch { }
         }
 
         private string ExtractRtfText(string rtf)
@@ -379,15 +379,21 @@ namespace ClipLite
                     break;
             }
 
-            // Show copy confirmation toast
+            // ── DIAGNOSTIC: write log file ──
+            try { System.IO.File.AppendAllText(
+                System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
+                    "cliplite_debug.log"),
+                "OnEntryCopied at " + DateTime.Now.ToString("HH:mm:ss.fff")
+                + " type=" + (entry.Type ?? "null") + "\r\n"); } catch { }
+
+            // Toast + tray notification
             string typeLabel = "文本";
             if (entry.Type == "image") typeLabel = "图片";
             else if (entry.Type == "filelist") typeLabel = "文件";
             else if (entry.Type == "richtext") typeLabel = "富文本";
             else if (entry.Type == "html") typeLabel = "HTML";
-
-            // DIAGNOSTIC: MessageBox to verify code path is reached
-            MessageBox.Show("已复制: " + typeLabel, "ClipLite 诊断");
+            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + typeLabel, ToolTipIcon.Info); } catch { }
         }
 
         // ── Startup clipboard capture ──

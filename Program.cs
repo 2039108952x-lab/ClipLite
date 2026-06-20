@@ -57,14 +57,14 @@ namespace ClipLite
         {
             CreateAppIcon();
 
-            // ── Startup marker on desktop ──
+            // ── Startup marker (EXE dir + desktop) ──
             try
             {
+                string dir = System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location);
+                string msg = "ClipLite 已启动: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "ClipLite_已启动.txt"), msg);
                 string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                System.IO.File.WriteAllText(
-                    System.IO.Path.Combine(desktop, "ClipLite_已启动.txt"),
-                    "ClipLite 已启动: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
-                    + "\r\nEXE: " + typeof(Program).Assembly.Location);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(desktop, "ClipLite_已启动.txt"), msg);
             }
             catch { }
 
@@ -473,16 +473,17 @@ namespace ClipLite
         }
 
         /// <summary>
-        /// Write a timestamped file to the desktop — the most reliable notification possible.
+        /// Write a timestamped file AND open it with Notepad — impossible to miss.
         /// </summary>
         private void WriteCopyMarker(string action)
         {
             try
             {
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                System.IO.File.WriteAllText(
-                    System.IO.Path.Combine(desktop, "ClipLite_已复制.txt"),
-                    "ClipLite " + action + ": " + DateTime.Now.ToString("HH:mm:ss.fff"));
+                string dir = System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location);
+                string path = System.IO.Path.Combine(dir, "ClipLite_通知.txt");
+                string msg = "ClipLite " + action + ": " + DateTime.Now.ToString("HH:mm:ss.fff");
+                System.IO.File.WriteAllText(path, msg);
+                System.Diagnostics.Process.Start("notepad.exe", path);
             }
             catch { }
         }

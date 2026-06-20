@@ -12,6 +12,8 @@ namespace ClipLite
         public bool ShowFileDetails { get; set; }
         public bool AutoStart { get; set; }
         public string CaptureMode { get; set; }
+        public uint HotkeyModifiers { get; set; }
+        public uint HotkeyKey { get; set; }
         public bool EnableEncryption { get; set; }
         public string EncryptionKey { get; set; }   // Base64, empty = auto-gen on enable
         public int MaxEntries { get; set; }
@@ -83,6 +85,8 @@ namespace ClipLite
             
             sb.Append(",\"showFileDetails\":").Append(ShowFileDetails ? "true" : "false");
             sb.Append(",\"captureMode\":\"").Append(CaptureMode ?? "full").Append("\"");
+            sb.Append(",\"hotkeyModifiers\":").Append(HotkeyModifiers);
+            sb.Append(",\"hotkeyKey\":").Append(HotkeyKey);
             sb.Append(",\"enableEncryption\":").Append(EnableEncryption ? "true" : "false");
             sb.Append(",\"encryptionKey\":\"").Append(SafeStorage.JsonEscape(EncryptionKey ?? "")).Append("\"");
             sb.Append(",\"excludedApps\":[");
@@ -109,6 +113,8 @@ namespace ClipLite
             s.ShowFileDetails = SafeStorage.ExtractRaw(json, "showFileDetails") != "false";
             s.AutoStart = SafeStorage.ExtractRaw(json, "autoStart") != "false";
             s.CaptureMode = SafeStorage.ExtractStr(json, "captureMode") ?? "full";
+            s.HotkeyModifiers = (uint)SafeStorage.ExtractLong(json, "hotkeyModifiers");
+            s.HotkeyKey = (uint)SafeStorage.ExtractLong(json, "hotkeyKey");
             s.EnableEncryption = SafeStorage.ExtractRaw(json, "enableEncryption") == "true";
             s.EncryptionKey = SafeStorage.ExtractStr(json, "encryptionKey") ?? "";
 

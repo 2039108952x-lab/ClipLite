@@ -8,8 +8,25 @@ namespace ClipLite
 {
     public class HistoryForm : Form
     {
+        // ── Cached GDI+ resources (avoid creation/disposal per OnDrawItem) ──
+        private static readonly Brush _bgNormal = new SolidBrush(Color.FromArgb(250, 250, 250));
+        private static readonly Brush _bgSelected = new SolidBrush(Color.FromArgb(200, 220, 240));
+        private static readonly Brush _bgHover = new SolidBrush(Color.FromArgb(235, 245, 252));
+        private static readonly Pen _sepPen = new Pen(Color.FromArgb(235, 235, 235));
+        private static readonly Brush _pinBrush = new SolidBrush(Color.FromArgb(255, 160, 0));
+        private static readonly Brush _textBrush = new SolidBrush(Color.FromArgb(40, 40, 40));
+        private static readonly Brush _infoBrush = new SolidBrush(Color.FromArgb(150, 150, 150));
+        private static readonly Brush _copyBtnBg = new SolidBrush(Color.FromArgb(245, 245, 245));
+        private static readonly Pen _copyBtnBorder = new Pen(Color.FromArgb(200, 200, 200));
+        private static readonly Brush _copyBtnText = new SolidBrush(Color.FromArgb(0, 100, 200));
+        private static readonly Brush _delBtnText = new SolidBrush(Color.FromArgb(200, 60, 60));
+        private static readonly Font _pinFont = new Font("Segoe UI", 7, FontStyle.Bold);
+        private static readonly Font _textFont = new Font("Segoe UI", 10);
+        private static readonly Font _infoFont = new Font("Segoe UI", 8);
+        private static readonly Font _btnFont = new Font("Segoe UI", 8);
+
         private TextBox _searchBox;
-        private ListBox _listBox;
+        private BufferedListBox _listBox;
         private Label _closeBtn;
         private List<ClipboardEntry> _allEntries = new List<ClipboardEntry>();
         private List<ClipboardEntry> _filteredEntries = new List<ClipboardEntry>();
@@ -27,6 +44,7 @@ namespace ClipLite
         public HistoryForm(SafeStorage storage, ThumbnailCache thumbCache)
         {
             InitializeComponent();
+            this.DoubleBuffered = true;
             _storage = storage;
 
             _thumbCache = thumbCache;
@@ -94,7 +112,7 @@ namespace ClipLite
             _searchBox.TextChanged += (s, e) => UpdateFilter();
             _searchBox.KeyDown += OnSearchKeyDown;
 
-            _listBox = new ListBox
+            _listBox = new BufferedListBox
             {
                 Location = new Point(6, 82),
                 Width = 508,
@@ -112,7 +130,6 @@ namespace ClipLite
             _listBox.KeyDown += OnListKeyDown;
             _listBox.MouseMove += OnListMouseMove;
             _listBox.MouseLeave += (s, e) => { _hoveredIndex = -1; _listBox.Invalidate(); };
-            _listBox.SelectedIndexChanged += (s, e) => _listBox.Invalidate();
 
             this.Controls.Add(titleBar);
             this.Controls.Add(_searchBox);
@@ -272,18 +289,13 @@ namespace ClipLite
         {
             int idx = _listBox.IndexFromPoint(e.Location);
             
-            // Track hover for button display
+            // Only track hover for button display — no auto-select (avoids flickering)
             if (idx != _hoveredIndex)
             {
                 int oldIdx = _hoveredIndex;
                 _hoveredIndex = idx;
                 if (oldIdx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(oldIdx));
                 if (idx >= 0) _listBox.Invalidate(_listBox.GetItemRectangle(idx));
-            }
-            
-            if (idx >= 0 && idx < _listBox.Items.Count && _listBox.SelectedIndex != idx)
-            {
-                _listBox.SelectedIndex = idx;
             }
         }
 
@@ -307,13 +319,14 @@ namespace ClipLite
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected ||
                             (_listBox.SelectedIndex == e.Index);
 
-            using (var bgBrush = new SolidBrush(selected ? Color.FromArgb(200, 220, 240) : Color.FromArgb(250, 250, 250)))
-            {
-                g.FillRectangle(bgBrush, bounds);
-            }
+            bool hovered = (e.Index == _hoveredIndex);
 
-            using (var sepPen = new Pen(Color.FromArgb(235, 235, 235)))
-                g.DrawLine(sepPen, bounds.X + 8, bounds.Bottom - 1, bounds.Right - 8, bounds.Bottom - 1);
+            // Background: selected → blue, hovered → light blue, normal → white
+            Brush bg = selected ? _bgSelected : (hovered ? _bgHover : _bgNormal);
+            g.FillRectangle(bg, bounds);
+
+            // Separator line
+            g.DrawLine(_sepPen, bounds.X + 8, bounds.Bottom - 1, bounds.Right - 8, bounds.Bottom - 1);
 
             int x = bounds.X + 6;
             int y = bounds.Y + 5;
@@ -321,45 +334,40 @@ namespace ClipLite
 
             if (entry.IsPinned)
             {
-                using (var pinBrush = new SolidBrush(Color.FromArgb(255, 160, 0)))
-                using (var pinFont = new Font("Segoe UI", 7, FontStyle.Bold))
-                {
-                    g.DrawString("置顶", pinFont, pinBrush, x, y);
-                }
+                g.DrawString("置顶", _pinFont, _pinBrush, x, y);
                 y += 14;
             }
 
+            // Preview text
             string preview = entry.PreviewText;
-            using (var textBrush = new SolidBrush(Color.FromArgb(40, 40, 40)))
-            using (var textFont = new Font("Segoe UI", 10))
-            {
-                var textRect = new Rectangle(x, y, maxW, 22);
-                TextRenderer.DrawText(g, preview, textFont, textRect, Color.FromArgb(40, 40, 40),
-                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            }
+            var textRect = new Rectangle(x, y, maxW, 22);
+            TextRenderer.DrawText(g, preview, _textFont, textRect, Color.FromArgb(40, 40, 40),
+                TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
-            using (var timeBrush = new SolidBrush(Color.FromArgb(150, 150, 150)))
-            using (var timeFont = new Font("Segoe UI", 8))
-            {
-                g.DrawString(entry.TimeDisplay, timeFont, timeBrush, x, bounds.Bottom - 18);
-            }
+            // Type + timestamp (bottom line)
+            string typeText = entry.TypeDisplay;
+            string timeText = entry.TimeDisplay;
+            TextRenderer.DrawText(g, typeText, _infoFont,
+                new Rectangle(x, bounds.Bottom - 17, 80, 16), Color.FromArgb(150, 150, 150),
+                TextFormatFlags.NoPrefix);
+            Size timeSz = TextRenderer.MeasureText(timeText, _infoFont);
+            TextRenderer.DrawText(g, timeText, _infoFont,
+                new Rectangle(bounds.Right - timeSz.Width - 8, bounds.Bottom - 17, timeSz.Width, 16),
+                Color.FromArgb(150, 150, 150), TextFormatFlags.NoPrefix);
+
             // Hover buttons (copy + delete, shown only on hovered item)
-            if (e.Index == _hoveredIndex && _hoveredIndex >= 0)
+            if (hovered)
             {
                 var copyRect = GetCopyButtonRect(e.Index);
                 var delRect = GetDeleteButtonRect(e.Index);
-                using (var btnBg = new SolidBrush(Color.FromArgb(245, 245, 245)))
-                using (var btnBorder = new Pen(Color.FromArgb(200, 200, 200)))
-                using (var copyBrush = new SolidBrush(Color.FromArgb(0, 100, 200)))
-                using (var delBrush = new SolidBrush(Color.FromArgb(200, 60, 60)))
-                using (var btnFont = new Font("Segoe UI", 8))
-                {                    g.FillRectangle(btnBg, copyRect);
-                    g.DrawRectangle(btnBorder, copyRect);
-                    g.DrawString("复制", btnFont, copyBrush, copyRect.X + 2, copyRect.Y + 3);
-                    g.FillRectangle(btnBg, delRect);
-                    g.DrawRectangle(btnBorder, delRect);
-                    g.DrawString("删除", btnFont, delBrush, delRect.X + 2, delRect.Y + 3);
-                }
+                g.FillRectangle(_copyBtnBg, copyRect);
+                g.DrawRectangle(_copyBtnBorder, copyRect);
+                TextRenderer.DrawText(g, "复制", _btnFont, copyRect, Color.FromArgb(0, 100, 200),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                g.FillRectangle(_copyBtnBg, delRect);
+                g.DrawRectangle(_copyBtnBorder, delRect);
+                TextRenderer.DrawText(g, "删除", _btnFont, delRect, Color.FromArgb(200, 60, 60),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
         }
 
@@ -381,20 +389,18 @@ namespace ClipLite
         {
             int idx = _listBox.IndexFromPoint(e.Location);
             if (idx < 0 || idx >= _listBox.Items.Count) return;
-            if (idx != _hoveredIndex) return;
+
             var copyRect = GetCopyButtonRect(idx);
             var delRect = GetDeleteButtonRect(idx);
+
             if (delRect.Contains(e.Location))
             {
                 var entry = _filteredEntries[idx];
                 RemoveEntry(entry.Id);
                 return;
             }
-            if (copyRect.Contains(e.Location))
-            {
-                SelectItem(idx);
-                return;
-            }
+            // Click on "复制" button or item background → copy + hide
+            SelectItem(idx);
         }
 
         private void OnMeasureItem(object sender, MeasureItemEventArgs e)
@@ -420,9 +426,15 @@ namespace ClipLite
             Hide();
         }
     }
+
+    /// <summary>
+    /// Double-buffered ListBox to eliminate flicker during owner-draw repaints.
+    /// </summary>
+    internal class BufferedListBox : ListBox
+    {
+        public BufferedListBox()
+        {
+            DoubleBuffered = true;
+        }
+    }
 }
-
-
-
-
-

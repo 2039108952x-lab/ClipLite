@@ -98,10 +98,17 @@ namespace ClipLite
 
             // ── Hotkey ──
             _hotkeyManager = new HotkeyManager();
-            _clipboardMonitor.WindowMessageReceived += OnWindowMessage;
+            _clipboardMonitor.HotkeyMessageReceived += OnWindowMessage;
             _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
             _clipboardMonitor.EnsureHandle();
-            _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
+            _clipboardMonitor.SetHotkeyManager(_hotkeyManager);
+            _hotkeyManager.Modifiers = _settings.HotkeyModifiers;
+            _hotkeyManager.KeyCode = _settings.HotkeyKey;
+            bool hotkeyOk = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
+            if (!hotkeyOk && (_settings.HotkeyModifiers != 0 || _settings.HotkeyKey != 0))
+            {
+                _trayIcon.Text = "ClipLite (快捷键注册失败)";
+            }
 
             // ── History form ──
             _historyForm = new HistoryForm(_storage, _thumbCache);
@@ -135,9 +142,12 @@ namespace ClipLite
             TryCaptureCurrentClipboard();
         }
 
-        private void OnWindowMessage(Message m)
+        private bool OnWindowMessage(Message m)
         {
-            _hotkeyManager.HandleMessage(ref m);
+            // _hotkeyManager.HandleMessage takes ref Message; we create a local copy
+            // since the event system passes structs by value
+            Message localMsg = m;
+            return _hotkeyManager.HandleMessage(ref localMsg);
         }
 
         private void CreateAppIcon()
@@ -387,10 +397,12 @@ namespace ClipLite
 
         // ── UI events ──
 
-        private void OnHotkeyPressed() { ShowHistory(); }
+        private void OnHotkeyPressed(string source) { ShowHistory(); }
 
         private void ShowHistory()
         {
+            if (_historyForm == null || _historyForm.IsDisposed) return;
+
             if (_historyForm.Visible)
             {
                 _historyForm.Hide();
@@ -468,6 +480,17 @@ namespace ClipLite
             _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
             _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
             ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
+            if (_hotkeyManager.Modifiers != _settings.HotkeyModifiers || _hotkeyManager.KeyCode != _settings.HotkeyKey)
+            {
+                _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
+                _hotkeyManager.Modifiers = _settings.HotkeyModifiers;
+                _hotkeyManager.KeyCode = _settings.HotkeyKey;
+                bool ok = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
+                if (!ok && (_settings.HotkeyModifiers != 0 || _settings.HotkeyKey != 0))
+                    _trayIcon.Text = "ClipLite (快捷键注册失败)";
+                else
+                    _trayIcon.Text = "ClipLite";
+            }
             _clipboardMonitor.CaptureMode = _settings.CaptureMode;
             SetAutoStart(_settings.AutoStart);
         }
@@ -476,14 +499,18 @@ namespace ClipLite
         {
             try
             {
-                string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(keyPath, true))
+                string keyPath = @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+                string appPath = typeof(Program).Assembly.Location;
+                string q = "\"";
+                if (enabled)
                 {
-                    if (key == null) return;
-                    if (enabled)
-                        key.SetValue("ClipLite", Application.ExecutablePath);
-                    else
-                        key.DeleteValue("ClipLite", false);
+                    string arg = "add " + q + keyPath + q + " /v " + q + "ClipLite" + q + " /d " + q + appPath + q + " /f";
+                    System.Diagnostics.Process.Start("reg.exe", arg);
+                }
+                else
+                {
+                    string arg = "delete " + q + keyPath + q + " /v " + q + "ClipLite" + q + " /f";
+                    System.Diagnostics.Process.Start("reg.exe", arg);
                 }
             }
             catch { }
@@ -503,7 +530,25 @@ namespace ClipLite
 
         protected override void ExitThreadCore()
         {
-            if (_trayIcon != null) _trayIcon.Visible = false;
+            try
+            {
+                if (_hotkeyManager != null && _clipboardMonitor != null)
+                    _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
+                if (_clipboardMonitor != null)
+                    _clipboardMonitor.Dispose();
+                if (_thumbCache != null)
+                    _thumbCache.Dispose();
+                if (_historyForm != null && !_historyForm.IsDisposed)
+                    _historyForm.Dispose();
+                if (_trayIcon != null)
+                {
+                    _trayIcon.Visible = false;
+                    _trayIcon.Dispose();
+                }
+                if (_appIcon != null)
+                    _appIcon.Dispose();
+            }
+            catch { }
             base.ExitThreadCore();
         }
     }

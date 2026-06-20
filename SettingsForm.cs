@@ -14,6 +14,9 @@ namespace ClipLite
         private CheckBox _chkFileDetails;
         private RadioButton _rdoFull, _rdoTextOnly;
         private CheckBox _chkAutoStart;
+        private TextBox _txtHotkey;
+        private uint _capturedModifiers = 6;
+        private uint _capturedKey = 0x56;
         private ListBox _lstExcluded;
         private Button _btnAdd, _btnRemove;
         private TextBox _txtNewApp;
@@ -33,7 +36,7 @@ namespace ClipLite
         private void InitializeComponent()
         {
             this.Text = "ClipLite 设置";
-            this.Size = new Size(380, 520);
+            this.Size = new Size(380, 580);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -86,7 +89,25 @@ namespace ClipLite
             };
             this.Controls.Add(_chkAutoStart);
 
-            y += 26;
+            y += 22;
+
+            var lblHotkey = new Label { Text = "快捷键（点击文本框后按下快捷键）",
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Location = new Point(16, y), AutoSize = true };
+            this.Controls.Add(lblHotkey);
+
+            y += 22;
+            _txtHotkey = new TextBox
+            {
+                Location = new Point(30, y),
+                Width = 200,
+                Height = 24,
+                Font = new Font("Segoe UI", 9),
+                Text = GetHotkeyText(_capturedModifiers, _capturedKey)
+            };
+            _txtHotkey.Enter += (s, e) => _txtHotkey.SelectAll();
+            _txtHotkey.KeyDown += OnHotkeyKeyDown;
+            this.Controls.Add(_txtHotkey);
 
             y += 30;
 
@@ -219,6 +240,9 @@ namespace ClipLite
             _rdoFull.Checked = (_settings.CaptureMode == "full");
             _rdoTextOnly.Checked = (_settings.CaptureMode != "full");
             _chkAutoStart.Checked = _settings.AutoStart;
+            _capturedModifiers = _settings.HotkeyModifiers;
+            _capturedKey = _settings.HotkeyKey;
+            _txtHotkey.Text = GetHotkeyText(_capturedModifiers, _capturedKey);
             _chkEncryption.Checked = _settings.EnableEncryption;
             _lstExcluded.Items.Clear();
             foreach (var app in _settings.ExcludedApps)
@@ -230,6 +254,8 @@ namespace ClipLite
             _settings.ShowFileDetails = _chkFileDetails.Checked;
             _settings.CaptureMode = _rdoFull.Checked ? "full" : "text_only";
             _settings.AutoStart = _chkAutoStart.Checked;
+            _settings.HotkeyModifiers = _capturedModifiers;
+            _settings.HotkeyKey = _capturedKey;
             _settings.EnableEncryption = _chkEncryption.Checked;
             _settings.ExcludedApps.Clear();
             foreach (string item in _lstExcluded.Items)
@@ -290,6 +316,43 @@ namespace ClipLite
                 + "Location: cliplite_data/";
         }
 
+
+        private void OnHotkeyKeyDown(object sender, KeyEventArgs e)
+        {
+            e.SuppressKeyPress = true;
+            e.Handled = true;
+            if (e.KeyCode == Keys.Delete || e.KeyCode == Keys.Escape || e.KeyCode == Keys.Back)
+            {
+                _capturedModifiers = 0;
+                _capturedKey = 0;
+                _txtHotkey.Text = "无";
+                _txtHotkey.SelectAll();
+                return;
+            }
+            if (e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.ShiftKey ||
+                e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin)
+                return;
+            uint mod = 0;
+            if (e.Control) mod |= 2;
+            if (e.Shift) mod |= 4;
+            if (e.Alt) mod |= 1;
+            if (mod == 0) return;
+            _capturedModifiers = mod;
+            _capturedKey = (uint)e.KeyCode;
+            _txtHotkey.Text = GetHotkeyText(mod, (uint)e.KeyCode);
+            _txtHotkey.SelectAll();
+        }
+
+        private static string GetHotkeyText(uint mod, uint key)
+        {
+            if (mod == 0 || key == 0) return "无";
+            string text = "";
+            if ((mod & 1) != 0) text += "Alt+";
+            if ((mod & 2) != 0) text += "Ctrl+";
+            if ((mod & 4) != 0) text += "Shift+";
+            text += ((Keys)key).ToString();
+            return text;
+        }
         private void OnClearHistory()
         {
             if (MessageBox.Show("Clear all clipboard history? This cannot be undone.",
@@ -302,6 +365,8 @@ namespace ClipLite
                         ExcludedApps = _settings.ExcludedApps,
                         EnableEncryption = _settings.EnableEncryption,
                         CaptureMode = _settings.CaptureMode,
+                        HotkeyModifiers = _settings.HotkeyModifiers,
+                        HotkeyKey = _settings.HotkeyKey,
                         AutoStart = _settings.AutoStart,
                         EncryptionKey = _settings.EncryptionKey,
                         MaxEntries = _settings.MaxEntries,
@@ -322,5 +387,6 @@ namespace ClipLite
         }
     }
 }
+
 
 

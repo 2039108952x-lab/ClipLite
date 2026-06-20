@@ -40,6 +40,14 @@ namespace ClipLite
         /// </summary>
         public event ClipboardDataHandler ClipboardDataAvailable;
 
+        /// <summary>
+        /// Fired for hotkey messages. Return true if the message was handled.
+        /// </summary>
+        public event Func<Message, bool> HotkeyMessageReceived;
+
+        private HotkeyManager _hotkeyRef; // weak reference for handle recreation
+        private IntPtr _handleAtRegister;
+
         private HashSet<string> _knownHashes = new HashSet<string>();
         private bool _initialized;
         private bool _skipNext;
@@ -64,6 +72,12 @@ namespace ClipLite
             CreateHandle(new CreateParams());
             AddClipboardFormatListener(Handle);
             _initialized = true;
+        }
+
+        public void SetHotkeyManager(HotkeyManager hm)
+        {
+            _hotkeyRef = hm;
+            _handleAtRegister = Handle;
         }
 
         public IntPtr WindowHandle { get { return _initialized ? Handle : IntPtr.Zero; } }
@@ -150,18 +164,36 @@ namespace ClipLite
             if (m.Msg == WM_CLIPBOARDUPDATE)
             {
                 OnClipboardUpdate();
+                base.WndProc(ref m);
+                return;
             }
-            else
+
+            // Only forward WM_HOTKEY to the handler, not every message
+            bool handled = false;
+            if (m.Msg == 0x0312 && HotkeyMessageReceived != null) // WM_HOTKEY
             {
-                if (WindowMessageReceived != null)
-                {
-                    WindowMessageReceived(m);
-                }
+                handled = HotkeyMessageReceived(m);
             }
-            base.WndProc(ref m);
+
+            if (!handled)
+                base.WndProc(ref m);
         }
 
-        public event Action<Message> WindowMessageReceived;
+        protected override void OnHandleChange()
+        {
+            base.OnHandleChange();
+            // Re-register hotkey if the handle was recreated
+            if (_hotkeyRef != null && _initialized)
+            {
+                IntPtr oldHandle = _handleAtRegister;
+                if (oldHandle != IntPtr.Zero && oldHandle != Handle)
+                {
+                    _hotkeyRef.Unregister(oldHandle);
+                    _hotkeyRef.Register(Handle);
+                    _handleAtRegister = Handle;
+                }
+            }
+        }
 
 
         private bool IsExcludedApp()
@@ -382,6 +414,11 @@ namespace ClipLite
         {
             try
             {
+                if (_hotkeyRef != null && _handleAtRegister != IntPtr.Zero)
+                {
+                    _hotkeyRef.Unregister(_handleAtRegister);
+                    _hotkeyRef = null;
+                }
                 _debounceTimer.Dispose();
                 RemoveClipboardFormatListener(Handle);
                 _initialized = false;
@@ -393,10 +430,12 @@ namespace ClipLite
 
     // ── HotkeyManager (unchanged) ──
 
+    // ── HotkeyManager ──
+
     public class HotkeyManager
     {
         private const int WM_HOTKEY = 0x0312;
-        private const int HOTKEY_ID = 9001;
+        private int _hotkeyId;
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -404,35 +443,56 @@ namespace ClipLite
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        [DllImport("kernel32.dll")]
+        private static extern ushort GlobalAddAtom(string lpString);
+
         private const uint MOD_CONTROL = 0x0002;
         private const uint MOD_SHIFT = 0x0004;
-        private const uint VK_V = 0x56;
+        private const uint MOD_NOREPEAT = 0x4000;
+        public uint Modifiers { get; set; }
+        public uint KeyCode { get; set; }
 
-        public event Action HotkeyPressed;
+        public HotkeyManager()
+        {
+            // Generate a unique atom-based hotkey ID to avoid conflicts
+            _hotkeyId = GlobalAddAtom("ClipLiteHotkeyKey");
+            if (_hotkeyId == 0) _hotkeyId = 9001; // fallback
+        }
+
+        public event Action<string> HotkeyPressed;
 
         public bool Register(IntPtr hWnd)
         {
-            return RegisterHotKey(hWnd, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT, VK_V);
+            if (hWnd == IntPtr.Zero) return false;
+            if (Modifiers == 0 || KeyCode == 0)
+            {
+                Unregister(hWnd);
+                return true; // "disabled" is valid
+            }
+            // MOD_NOREPEAT prevents repeated hotkey when user holds the keys
+            return RegisterHotKey(hWnd, _hotkeyId, Modifiers | MOD_NOREPEAT, KeyCode);
         }
 
         public void Unregister(IntPtr hWnd)
         {
             if (hWnd != IntPtr.Zero)
-                UnregisterHotKey(hWnd, HOTKEY_ID);
+                UnregisterHotKey(hWnd, _hotkeyId);
         }
 
         public bool HandleMessage(ref Message m)
         {
-            if (m.Msg == WM_HOTKEY && (int)m.WParam == HOTKEY_ID)
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == _hotkeyId)
             {
                 if (HotkeyPressed != null)
-                    HotkeyPressed();
+                    HotkeyPressed("hotkey");
+                m.Result = (IntPtr)1;
                 return true;
             }
             return false;
         }
     }
 }
+
 
 
 

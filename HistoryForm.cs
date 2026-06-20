@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace ClipLite
@@ -483,6 +484,18 @@ namespace ClipLite
 
     internal class ToastForm : Form
     {
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        private const int SW_SHOWNA = 8; // Show without activating
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int X, int Y, int cx, int cy, uint uFlags);
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOMOVE = 2;
+        private const uint SWP_NOSIZE = 1;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+
         private Timer _timer;
         private Label _label;
         private static bool _toastEnabled = true;
@@ -499,15 +512,30 @@ namespace ClipLite
 
             try
             {
-                var toast = new ToastForm();
-                string text = "✓ 已复制";
+                string text = "✔ 已复制";
                 if (!string.IsNullOrEmpty(typeLabel)) text += " (" + typeLabel + ")";
+
+                var toast = new ToastForm();
                 toast._label.Text = text;
-                toast.Show();
+
+                // Force handle creation BEFORE positioning/showing
+                IntPtr h = toast.Handle;
+
+                int sw = Screen.PrimaryScreen.WorkingArea.Width;
+                int sh = Screen.PrimaryScreen.WorkingArea.Height;
+
+                // Force window to topmost and visible via P/Invoke
+                SetWindowPos(h, HWND_TOPMOST,
+                    (sw - toast.Width) / 2, sh - toast.Height - 50,
+                    toast.Width, toast.Height,
+                    SWP_SHOWWINDOW);
+
+                // Show without activating (so focus stays on previous window)
+                ShowWindow(h, SW_SHOWNA);
             }
             catch
             {
-                // Silently ignore — toast is cosmetic only
+                // Toast is cosmetic only
             }
         }
 
@@ -517,7 +545,6 @@ namespace ClipLite
             Height = 46;
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
-            TopMost = true;
             StartPosition = FormStartPosition.Manual;
             BackColor = Color.FromArgb(45, 45, 45);
 
@@ -538,14 +565,15 @@ namespace ClipLite
             _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
         }
 
+        protected override void SetVisibleCore(bool value)
+        {
+            // Force visible — prevent WinForms from suppressing the show
+            base.SetVisibleCore(value);
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            // Position at screen bottom-center only after the form is actually visible
-            int sw = Screen.PrimaryScreen.WorkingArea.Width;
-            int sh = Screen.PrimaryScreen.WorkingArea.Height;
-            Location = new Point((sw - Width) / 2, sh - Height - 50);
-            // Start countdown only after form is fully shown
             _timer.Start();
         }
 

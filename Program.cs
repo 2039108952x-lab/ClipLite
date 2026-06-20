@@ -189,6 +189,14 @@ namespace ClipLite
 
         private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
         {
+            // ── DIAGNOSTIC: always log at entry — before any early return ──
+            try { System.IO.File.AppendAllText(
+                System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
+                    "cliplite_debug.log"),
+                "OnClipboardData ENTER at " + DateTime.Now.ToString("HH:mm:ss.fff")
+                + " paused=" + _paused + "\r\n"); } catch { }
+
             if (_paused) return;
 
             // Determine primary type
@@ -320,7 +328,7 @@ namespace ClipLite
             SaveHistory();
 
             // ── DIAGNOSTIC: write log file ──
-            try { System.IO.File.WriteAllText(
+            try { System.IO.File.AppendAllText(
                 System.IO.Path.Combine(
                     System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
                     "cliplite_debug.log"),

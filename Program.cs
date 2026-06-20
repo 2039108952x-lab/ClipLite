@@ -31,6 +31,15 @@ namespace ClipLite
             }
             catch { }
 
+            // ── ULTIMATE DIAGNOSTIC: MessageBox on EVERY startup ──
+            MessageBox.Show(
+                "ClipLite 诊断版已启动\n" +
+                "EXE: " + typeof(Program).Assembly.Location + "\n" +
+                "时间: " + DateTime.Now.ToString("HH:mm:ss"),
+                "ClipLite 诊断",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+
             bool firstInstance;
             _mutex = new System.Threading.Mutex(true, "ClipLite-Singleton-Mutex", out firstInstance);
 
@@ -419,18 +428,13 @@ namespace ClipLite
                     break;
             }
 
-            // ── DIAGNOSTIC: sound + desktop log ──
-            try
-            {
-                System.Media.SystemSounds.Asterisk.Play();
-                System.IO.File.AppendAllText(
-                    System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                        "ClipLite_启动日志.txt"),
-                    "OnEntryCopied at " + DateTime.Now.ToString("HH:mm:ss.fff")
-                    + " type=" + (entry.Type ?? "null") + "\r\n");
-            }
-            catch { }
+            // Tray notification
+            string typeLabel = "文本";
+            if (entry.Type == "image") typeLabel = "图片";
+            else if (entry.Type == "filelist") typeLabel = "文件";
+            else if (entry.Type == "richtext") typeLabel = "富文本";
+            else if (entry.Type == "html") typeLabel = "HTML";
+            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ 已复制 (" + typeLabel + ")", ToolTipIcon.Info); } catch { }
         }
 
         // ── Startup clipboard capture ──

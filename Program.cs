@@ -216,13 +216,8 @@ namespace ClipLite
 
         private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
         {
-            // Notify at the earliest possible point — before any early return
-            string typeLabel = "文本";
-            if (formats.HasFlag(ClipboardFormatFlags.Image)) typeLabel = "图片";
-            else if (formats.HasFlag(ClipboardFormatFlags.FileList)) typeLabel = "文件";
-            else if (formats.HasFlag(ClipboardFormatFlags.RichText)) typeLabel = "富文本";
-            else if (formats.HasFlag(ClipboardFormatFlags.Html)) typeLabel = "HTML";
-            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + typeLabel, ToolTipIcon.Info); } catch { }
+            // Visual feedback: flash tray icon text
+            FlashTray("ClipLite - ✔");
 
             if (_paused) return;
 
@@ -411,13 +406,8 @@ namespace ClipLite
                     break;
             }
 
-            // Tray notification
-            string typeLabel = "文本";
-            if (entry.Type == "image") typeLabel = "图片";
-            else if (entry.Type == "filelist") typeLabel = "文件";
-            else if (entry.Type == "richtext") typeLabel = "富文本";
-            else if (entry.Type == "html") typeLabel = "HTML";
-            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ 已复制 (" + typeLabel + ")", ToolTipIcon.Info); } catch { }
+            // Visual feedback: flash tray icon text
+            FlashTray("ClipLite - ✔");
         }
 
         // ── Startup clipboard capture ──
@@ -449,6 +439,28 @@ namespace ClipLite
         // ── UI events ──
 
         private void OnHotkeyPressed(string source) { ShowHistory(); }
+
+        /// <summary>
+        /// Temporarily change tray icon text as visual copy feedback.
+        /// Works without any system permissions — just changes a tooltip.
+        /// </summary>
+        private void FlashTray(string text)
+        {
+            try
+            {
+                string original = _trayIcon.Text;
+                _trayIcon.Text = text;
+                var t = new System.Windows.Forms.Timer { Interval = 1500 };
+                t.Tick += (s, e) =>
+                {
+                    t.Stop();
+                    t.Dispose();
+                    try { _trayIcon.Text = original; } catch { }
+                };
+                t.Start();
+            }
+            catch { }
+        }
 
         private void ShowHistory()
         {

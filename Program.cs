@@ -222,7 +222,7 @@ namespace ClipLite
             // Visual: tray icon → green checkmark
             FlashIcon();
             // Desktop file notification
-            WriteCopyMarker("已捕获");
+            ShowToast("✔ 已捕获");
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已捕获"); } catch { }
 
@@ -416,7 +416,7 @@ namespace ClipLite
             // Visual: tray icon → green checkmark
             FlashIcon();
             // Desktop file notification
-            WriteCopyMarker("已复制");
+            ShowToast("✔ 已复制");
             // Bottom status in history panel
             try { _historyForm.ShowStatus("✔ 已复制"); } catch { }
         }
@@ -473,17 +473,43 @@ namespace ClipLite
         }
 
         /// <summary>
-        /// Write a timestamped file AND open it with Notepad — impossible to miss.
+        /// Show a small auto-dismissing toast at screen bottom-center.
         /// </summary>
-        private void WriteCopyMarker(string action)
+        private void ShowToast(string text)
         {
             try
             {
-                string dir = System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location);
-                string path = System.IO.Path.Combine(dir, "ClipLite_通知.txt");
-                string msg = "ClipLite " + action + ": " + DateTime.Now.ToString("HH:mm:ss.fff");
-                System.IO.File.WriteAllText(path, msg);
-                System.Diagnostics.Process.Start("notepad.exe", path);
+                var f = new Form();
+                f.FormBorderStyle = FormBorderStyle.None;
+                f.ShowInTaskbar = false;
+                f.TopMost = true;
+                f.StartPosition = FormStartPosition.Manual;
+                f.BackColor = Color.FromArgb(45, 45, 45);
+                f.Width = 280;
+                f.Height = 50;
+
+                int sw = Screen.PrimaryScreen.WorkingArea.Width;
+                int sh = Screen.PrimaryScreen.WorkingArea.Height;
+                f.Location = new Point((sw - f.Width) / 2, sh - f.Height - 60);
+
+                var lbl = new Label
+                {
+                    Text = text,
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 12, FontStyle.Regular),
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.Transparent
+                };
+                lbl.Click += (s, e) => f.Close();
+                f.Controls.Add(lbl);
+                f.Click += (s, e) => f.Close();
+
+                var t = new Timer { Interval = 2000 };
+                t.Tick += (s, e) => { t.Stop(); t.Dispose(); f.Close(); };
+                t.Start();
+
+                f.Show();
             }
             catch { }
         }

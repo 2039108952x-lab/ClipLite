@@ -80,7 +80,7 @@ namespace ClipLite
 
             var titleLabel = new Label
             {
-                Text = "剪贴板历史",
+                Text = "剪贴板历史 ◆",
                 Font = new Font("Segoe UI", 10, FontStyle.Regular),
                 ForeColor = Color.FromArgb(60, 60, 60),
                 Left = 12,

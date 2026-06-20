@@ -54,6 +54,12 @@ namespace ClipLite
 
         public ClipLiteContext()
         {
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
+                    "cliplite_debug.log"),
+                "ClipLite started at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+
             CreateAppIcon();
 
             // ── Initialize storage ──
@@ -322,6 +328,14 @@ namespace ClipLite
                 + "\r\nprimaryType=" + (primaryType ?? "null")
                 + "\r\nhash=" + (hash ?? "null")
                 + "\r\npaused=" + _paused); } catch { }
+
+            // Tray notification
+            string toastLabel = "文本";
+            if (primaryType == "image") toastLabel = "图片";
+            else if (primaryType == "filelist") toastLabel = "文件";
+            else if (primaryType == "richtext") toastLabel = "富文本";
+            else if (primaryType == "html") toastLabel = "HTML";
+            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + toastLabel, ToolTipIcon.Info); } catch { }
         }
 
         private string ExtractRtfText(string rtf)

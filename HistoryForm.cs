@@ -451,27 +451,37 @@ namespace ClipLite
 
         private void OnListMouseClick(object sender, MouseEventArgs e)
         {
-            int idx = _listBox.IndexFromPoint(e.Location);
-            if (idx < 0 || idx >= _listBox.Items.Count) return;
-
-            var pinRect  = GetPinButtonRect(idx);
-            var copyRect = GetCopyButtonRect(idx);
-            var delRect  = GetDeleteButtonRect(idx);
-
-            if (delRect.Contains(e.Location))
+            try
             {
-                var entry = _filteredEntries[idx];
-                RemoveEntry(entry.Id);
-                return;
+                int idx = _listBox.IndexFromPoint(e.Location);
+                if (idx < 0 || idx >= _listBox.Items.Count) return;
+
+                // Guard: _filteredEntries must match listbox items
+                if (idx >= _filteredEntries.Count) return;
+
+                var pinRect  = GetPinButtonRect(idx);
+                var copyRect = GetCopyButtonRect(idx);
+                var delRect  = GetDeleteButtonRect(idx);
+
+                if (delRect.Contains(e.Location))
+                {
+                    var entry = _filteredEntries[idx];
+                    RemoveEntry(entry.Id);
+                    return;
+                }
+                if (pinRect.Contains(e.Location))
+                {
+                    var entry = _filteredEntries[idx];
+                    TogglePin(entry.Id);
+                    return;
+                }
+                // Click on "复制" button or item background → copy + hide
+                SelectItem(idx);
             }
-            if (pinRect.Contains(e.Location))
+            catch
             {
-                var entry = _filteredEntries[idx];
-                TogglePin(entry.Id);
-                return;
+                // Prevent crash from causing UI to disappear
             }
-            // Click on "复制" button or item background → copy + hide
-            SelectItem(idx);
         }
 
         private void OnMeasureItem(object sender, MeasureItemEventArgs e)

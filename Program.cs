@@ -216,13 +216,13 @@ namespace ClipLite
 
         private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
         {
-            // ── DIAGNOSTIC: always log at entry — before any early return ──
-            try { System.IO.File.AppendAllText(
-                System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                    "ClipLite_启动日志.txt"),
-                "OnClipboardData ENTER at " + DateTime.Now.ToString("HH:mm:ss.fff")
-                + " paused=" + _paused + " formats=" + formats + "\r\n"); } catch { }
+            // Notify at the earliest possible point — before any early return
+            string typeLabel = "文本";
+            if (formats.HasFlag(ClipboardFormatFlags.Image)) typeLabel = "图片";
+            else if (formats.HasFlag(ClipboardFormatFlags.FileList)) typeLabel = "文件";
+            else if (formats.HasFlag(ClipboardFormatFlags.RichText)) typeLabel = "富文本";
+            else if (formats.HasFlag(ClipboardFormatFlags.Html)) typeLabel = "HTML";
+            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + typeLabel, ToolTipIcon.Info); } catch { }
 
             if (_paused) return;
 
@@ -354,23 +354,6 @@ namespace ClipLite
 
             SaveHistory();
 
-            // ── DIAGNOSTIC: write log file ──
-            try { System.IO.File.AppendAllText(
-                System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                    "ClipLite_启动日志.txt"),
-                "OnClipboardData reached at " + DateTime.Now.ToString("HH:mm:ss.fff")
-                + "\r\nprimaryType=" + (primaryType ?? "null")
-                + "\r\nhash=" + (hash ?? "null")
-                + "\r\npaused=" + _paused); } catch { }
-
-            // Tray notification
-            string toastLabel = "文本";
-            if (primaryType == "image") toastLabel = "图片";
-            else if (primaryType == "filelist") toastLabel = "文件";
-            else if (primaryType == "richtext") toastLabel = "富文本";
-            else if (primaryType == "html") toastLabel = "HTML";
-            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + toastLabel, ToolTipIcon.Info); } catch { }
         }
 
         private string ExtractRtfText(string rtf)

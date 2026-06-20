@@ -224,6 +224,8 @@ namespace ClipLite
         {
             // Visual feedback: flash tray icon text
             FlashTray("ClipLite - ✔");
+            // Bottom status in history panel
+            try { _historyForm.ShowStatus("✔ 已捕获"); } catch { }
 
             if (_paused) return;
 
@@ -414,6 +416,8 @@ namespace ClipLite
 
             // Visual feedback: flash tray icon text
             FlashTray("ClipLite - ✔");
+            // Bottom status in history panel
+            try { _historyForm.ShowStatus("✔ 已复制"); } catch { }
         }
 
         // ── Startup clipboard capture ──

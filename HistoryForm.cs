@@ -38,6 +38,8 @@ namespace ClipLite
         private SafeStorage _storage;
         private Dictionary<string, Image> _thumbCacheLocal = new Dictionary<string, Image>();
         private int _hoveredIndex = -1;
+        private Label _statusLabel;
+        private Timer _statusTimer;
 
         public event Action<string> ItemSelected;
 #pragma warning disable 67  // EntryCopied is subscribed externally
@@ -138,6 +140,23 @@ namespace ClipLite
             this.Controls.Add(titleBar);
             this.Controls.Add(_searchBox);
             this.Controls.Add(_listBox);
+
+            // ── Status label at bottom ──
+            _statusLabel = new Label
+            {
+                Text = "",
+                Font = new Font("Segoe UI", 9, FontStyle.Regular),
+                ForeColor = Color.FromArgb(0, 160, 60),
+                BackColor = Color.FromArgb(240, 250, 240),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Dock = DockStyle.Bottom,
+                Height = 28,
+                Visible = false
+            };
+            this.Controls.Add(_statusLabel);
+
+            _statusTimer = new Timer { Interval = 2000 };
+            _statusTimer.Tick += (s, e) => { _statusTimer.Stop(); _statusLabel.Visible = false; };
         }
 
         protected override CreateParams CreateParams
@@ -306,6 +325,14 @@ namespace ClipLite
                 if (idx >= 0 && idx < _listBox.Items.Count)
                     _listBox.Invalidate(_listBox.GetItemRectangle(idx));
             }
+        }
+
+        public void ShowStatus(string text)
+        {
+            _statusLabel.Text = text;
+            _statusLabel.Visible = true;
+            _statusTimer.Stop();
+            _statusTimer.Start();
         }
 
         private void SelectItem(int index)

@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace ClipLite
@@ -482,13 +481,9 @@ namespace ClipLite
         }
     }
 
-    /// <summary>
-    /// Lightweight toast notification — "✓ 已复制" at screen bottom-center.
-    /// Auto-dismisses after 1.2s or on click.
-    /// </summary>
     internal class ToastForm : Form
     {
-        private System.Windows.Forms.Timer _timer;
+        private Timer _timer;
         private Label _label;
         private static bool _toastEnabled = true;
 
@@ -502,39 +497,32 @@ namespace ClipLite
         {
             if (!ToastEnabled) return;
 
-            // Post to UI thread's message queue so it runs AFTER the current
-            // event handler chain (click → copy → hide) fully completes.
-            SynchronizationContext.Current.Post(state =>
+            try
             {
                 var toast = new ToastForm();
                 string text = "✓ 已复制";
-                if (!string.IsNullOrEmpty(typeLabel))
-                    text += " (" + typeLabel + ")";
+                if (!string.IsNullOrEmpty(typeLabel)) text += " (" + typeLabel + ")";
                 toast._label.Text = text;
-
-                int screenW = Screen.PrimaryScreen.WorkingArea.Width;
-                int screenH = Screen.PrimaryScreen.WorkingArea.Height;
-                toast.Location = new Point(
-                    (screenW - toast.Width) / 2,
-                    screenH - toast.Height - 50);
-
                 toast.Show();
-            }, null);
+            }
+            catch
+            {
+                // Silently ignore — toast is cosmetic only
+            }
         }
 
         private ToastForm()
         {
-            this.Width = 220;
-            this.Height = 46;
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.ShowInTaskbar = false;
-            this.TopMost = true;
-            this.StartPosition = FormStartPosition.Manual;
-            this.BackColor = Color.FromArgb(45, 45, 45);
+            Width = 220;
+            Height = 46;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            StartPosition = FormStartPosition.Manual;
+            BackColor = Color.FromArgb(45, 45, 45);
 
             _label = new Label
             {
-                Text = "✓ 已复制",
                 Font = new Font("Segoe UI", 11, FontStyle.Regular),
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
@@ -543,22 +531,27 @@ namespace ClipLite
                 Cursor = Cursors.Hand
             };
             _label.Click += (s, e) => Close();
-            this.Controls.Add(_label);
-            this.Click += (s, e) => Close();
+            Controls.Add(_label);
+            Click += (s, e) => Close();
 
-            _timer = new System.Windows.Forms.Timer { Interval = 1500 };
+            _timer = new Timer { Interval = 1500 };
             _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            // Position at screen bottom-center only after the form is actually visible
+            int sw = Screen.PrimaryScreen.WorkingArea.Width;
+            int sh = Screen.PrimaryScreen.WorkingArea.Height;
+            Location = new Point((sw - Width) / 2, sh - Height - 50);
+            // Start countdown only after form is fully shown
             _timer.Start();
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _timer != null)
-            {
-                _timer.Stop();
-                _timer.Dispose();
-                _timer = null;
-            }
+            if (disposing && _timer != null) { _timer.Stop(); _timer.Dispose(); _timer = null; }
             base.Dispose(disposing);
         }
     }

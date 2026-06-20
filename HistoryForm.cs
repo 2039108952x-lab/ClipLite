@@ -489,50 +489,55 @@ namespace ClipLite
     {
         private Timer _timer;
         private static bool _toastEnabled = true;
+        private static ToastForm _instance;
+        private Label _label;
 
         public static bool ToastEnabled
         {
             get { return _toastEnabled; }
-            set { _toastEnabled = value; }
+            set
+            {
+                _toastEnabled = value;
+                if (!value && _instance != null && !_instance.IsDisposed)
+                    _instance.Close();
+            }
         }
 
         public static void ShowToast(string typeLabel)
         {
             if (!ToastEnabled) return;
-            var toast = new ToastForm(typeLabel);
-            toast.Show();
-        }
 
-        private ToastForm(string typeLabel)
-        {
-            int screenW = Screen.PrimaryScreen.WorkingArea.Width;
-            int screenH = Screen.PrimaryScreen.WorkingArea.Height;
+            if (_instance == null || _instance.IsDisposed)
+            {
+                _instance = new ToastForm();
+                _instance.Show();
+            }
 
             string text = "✓ 已复制";
             if (!string.IsNullOrEmpty(typeLabel))
                 text += " (" + typeLabel + ")";
+            _instance._label.Text = text;
 
-            using (var g = Graphics.FromHwnd(IntPtr.Zero))
-            {
-                var textSize = g.MeasureString(text, new Font("Segoe UI", 11));
-                int pad = 18;
-                this.Width = (int)textSize.Width + pad * 2;
-                this.Height = 44;
-                this.Location = new Point(
-                    (screenW - this.Width) / 2,
-                    screenH - this.Height - 50);
-            }
+            // Restart timer
+            _instance._timer.Stop();
+            _instance._timer.Start();
 
+            _instance.BringToFront();
+        }
+
+        private ToastForm()
+        {
+            this.Width = 220;
+            this.Height = 46;
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.TopMost = true;
             this.StartPosition = FormStartPosition.Manual;
-            this.BackColor = Color.FromArgb(50, 50, 50);
-            this.Opacity = 0.92;
+            this.BackColor = Color.FromArgb(45, 45, 45);
 
-            var lbl = new Label
+            _label = new Label
             {
-                Text = text,
+                Text = "✓ 已复制",
                 Font = new Font("Segoe UI", 11, FontStyle.Regular),
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
@@ -540,25 +545,23 @@ namespace ClipLite
                 Dock = DockStyle.Fill,
                 Cursor = Cursors.Hand
             };
-            lbl.Click += (s, e) => Close();
-            this.Controls.Add(lbl);
+            _label.Click += (s, e) => Hide();
+            this.Controls.Add(_label);
+            this.Click += (s, e) => Hide();
 
-            this.Click += (s, e) => Close();
-
-            _timer = new Timer { Interval = 1200 };
-            _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
-            _timer.Start();
+            _timer = new Timer { Interval = 1500 };
+            _timer.Tick += (s, e) => { _timer.Stop(); Hide(); };
         }
 
-        protected override CreateParams CreateParams
+        protected override void OnLoad(EventArgs e)
         {
-            get
-            {
-                const int CS_DROPSHADOW = 0x00020000;
-                var cp = base.CreateParams;
-                cp.ClassStyle |= CS_DROPSHADOW;
-                return cp;
-            }
+            base.OnLoad(e);
+            // Center at bottom of screen
+            int screenW = Screen.PrimaryScreen.WorkingArea.Width;
+            int screenH = Screen.PrimaryScreen.WorkingArea.Height;
+            this.Location = new Point(
+                (screenW - this.Width) / 2,
+                screenH - this.Height - 50);
         }
 
         protected override void Dispose(bool disposing)
@@ -569,6 +572,8 @@ namespace ClipLite
                 _timer.Dispose();
                 _timer = null;
             }
+            if (disposing && _instance == this)
+                _instance = null;
             base.Dispose(disposing);
         }
     }

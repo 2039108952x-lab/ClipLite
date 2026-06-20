@@ -20,6 +20,9 @@ namespace ClipLite
         private static readonly Pen _copyBtnBorder = new Pen(Color.FromArgb(200, 200, 200));
         private static readonly Brush _copyBtnText = new SolidBrush(Color.FromArgb(0, 100, 200));
         private static readonly Brush _delBtnText = new SolidBrush(Color.FromArgb(200, 60, 60));
+        private static readonly Brush _pinBtnText = new SolidBrush(Color.FromArgb(230, 130, 0));
+        private static readonly Brush _pinBtnActiveBg = new SolidBrush(Color.FromArgb(255, 180, 60));
+        private static readonly Pen _pinBtnActiveBorder = new Pen(Color.FromArgb(220, 150, 40));
         private static readonly Font _pinFont = new Font("Segoe UI", 7, FontStyle.Bold);
         private static readonly Font _textFont = new Font("Segoe UI", 10);
         private static readonly Font _infoFont = new Font("Segoe UI", 8);
@@ -62,8 +65,8 @@ namespace ClipLite
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.TopMost = true;
-            this.Width = 520;
-            this.Height = 500;
+            this.Width = 620;
+            this.Height = 520;
             this.StartPosition = FormStartPosition.Manual;
             this.BackColor = Color.FromArgb(250, 250, 250);
 
@@ -103,7 +106,7 @@ namespace ClipLite
             _searchBox = new TextBox
             {
                 Location = new Point(6, 44),
-                Width = 508,
+                Width = 608,
                 Height = 30,
                 Font = new Font("Segoe UI", 11),
                 BorderStyle = BorderStyle.FixedSingle,
@@ -115,8 +118,8 @@ namespace ClipLite
             _listBox = new BufferedListBox
             {
                 Location = new Point(6, 82),
-                Width = 508,
-                Height = 408,
+                Width = 608,
+                Height = 428,
                 BorderStyle = BorderStyle.None,
                 DrawMode = DrawMode.OwnerDrawVariable,
                 IntegralHeight = false,
@@ -355,15 +358,36 @@ namespace ClipLite
                 new Rectangle(bounds.Right - timeSz.Width - 8, bounds.Bottom - 17, timeSz.Width, 16),
                 Color.FromArgb(150, 150, 150), TextFormatFlags.NoPrefix);
 
-            // Hover buttons (copy + delete, shown only on hovered item)
+            // Hover buttons (pin + copy + delete, shown only on hovered item)
             if (hovered)
             {
+                var pinRect  = GetPinButtonRect(e.Index);
                 var copyRect = GetCopyButtonRect(e.Index);
-                var delRect = GetDeleteButtonRect(e.Index);
+                var delRect  = GetDeleteButtonRect(e.Index);
+
+                // Pin button — orange bg when already pinned
+                if (entry.IsPinned)
+                {
+                    g.FillRectangle(_pinBtnActiveBg, pinRect);
+                    g.DrawRectangle(_pinBtnActiveBorder, pinRect);
+                    TextRenderer.DrawText(g, "置顶", _btnFont, pinRect, Color.White,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                }
+                else
+                {
+                    g.FillRectangle(_copyBtnBg, pinRect);
+                    g.DrawRectangle(_copyBtnBorder, pinRect);
+                    TextRenderer.DrawText(g, "置顶", _btnFont, pinRect, Color.FromArgb(230, 130, 0),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                }
+
+                // Copy button
                 g.FillRectangle(_copyBtnBg, copyRect);
                 g.DrawRectangle(_copyBtnBorder, copyRect);
                 TextRenderer.DrawText(g, "复制", _btnFont, copyRect, Color.FromArgb(0, 100, 200),
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+                // Delete button
                 g.FillRectangle(_copyBtnBg, delRect);
                 g.DrawRectangle(_copyBtnBorder, delRect);
                 TextRenderer.DrawText(g, "删除", _btnFont, delRect, Color.FromArgb(200, 60, 60),
@@ -371,18 +395,25 @@ namespace ClipLite
             }
         }
 
+        private Rectangle GetPinButtonRect(int index)
+        {
+            if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
+            var bounds = _listBox.GetItemRectangle(index);
+            return new Rectangle(bounds.Right - 118, bounds.Y + 4, 36, 20);
+        }
+
         private Rectangle GetCopyButtonRect(int index)
         {
             if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
             var bounds = _listBox.GetItemRectangle(index);
-            return new Rectangle(bounds.Right - 76, bounds.Y + 4, 36, 20);
+            return new Rectangle(bounds.Right - 78, bounds.Y + 4, 36, 20);
         }
 
         private Rectangle GetDeleteButtonRect(int index)
         {
             if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
             var bounds = _listBox.GetItemRectangle(index);
-            return new Rectangle(bounds.Right - 36, bounds.Y + 4, 36, 20);
+            return new Rectangle(bounds.Right - 38, bounds.Y + 4, 36, 20);
         }
 
         private void OnListMouseClick(object sender, MouseEventArgs e)
@@ -390,13 +421,20 @@ namespace ClipLite
             int idx = _listBox.IndexFromPoint(e.Location);
             if (idx < 0 || idx >= _listBox.Items.Count) return;
 
+            var pinRect  = GetPinButtonRect(idx);
             var copyRect = GetCopyButtonRect(idx);
-            var delRect = GetDeleteButtonRect(idx);
+            var delRect  = GetDeleteButtonRect(idx);
 
             if (delRect.Contains(e.Location))
             {
                 var entry = _filteredEntries[idx];
                 RemoveEntry(entry.Id);
+                return;
+            }
+            if (pinRect.Contains(e.Location))
+            {
+                var entry = _filteredEntries[idx];
+                TogglePin(entry.Id);
                 return;
             }
             // Click on "复制" button or item background → copy + hide

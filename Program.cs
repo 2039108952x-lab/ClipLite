@@ -68,11 +68,15 @@ namespace ClipLite
 
         public ClipLiteContext()
         {
-            System.IO.File.WriteAllText(
-                System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
-                    "cliplite_debug.log"),
-                "ClipLite started at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            // ── DIAGNOSTIC: write log to DESKTOP (easy to find) ──
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            try { System.IO.File.WriteAllText(
+                System.IO.Path.Combine(desktop, "ClipLite_启动日志.txt"),
+                "ClipLite started at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                + "\r\nEXE path: " + typeof(Program).Assembly.Location); } catch { }
+
+            // ── Play startup sound to confirm new EXE is running ──
+            try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
 
             CreateAppIcon();
 
@@ -206,10 +210,10 @@ namespace ClipLite
             // ── DIAGNOSTIC: always log at entry — before any early return ──
             try { System.IO.File.AppendAllText(
                 System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
-                    "cliplite_debug.log"),
+                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                    "ClipLite_启动日志.txt"),
                 "OnClipboardData ENTER at " + DateTime.Now.ToString("HH:mm:ss.fff")
-                + " paused=" + _paused + "\r\n"); } catch { }
+                + " paused=" + _paused + " formats=" + formats + "\r\n"); } catch { }
 
             if (_paused) return;
 
@@ -344,8 +348,8 @@ namespace ClipLite
             // ── DIAGNOSTIC: write log file ──
             try { System.IO.File.AppendAllText(
                 System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
-                    "cliplite_debug.log"),
+                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                    "ClipLite_启动日志.txt"),
                 "OnClipboardData reached at " + DateTime.Now.ToString("HH:mm:ss.fff")
                 + "\r\nprimaryType=" + (primaryType ?? "null")
                 + "\r\nhash=" + (hash ?? "null")
@@ -415,21 +419,18 @@ namespace ClipLite
                     break;
             }
 
-            // ── DIAGNOSTIC: write log file ──
-            try { System.IO.File.AppendAllText(
-                System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location),
-                    "cliplite_debug.log"),
-                "OnEntryCopied at " + DateTime.Now.ToString("HH:mm:ss.fff")
-                + " type=" + (entry.Type ?? "null") + "\r\n"); } catch { }
-
-            // Toast + tray notification
-            string typeLabel = "文本";
-            if (entry.Type == "image") typeLabel = "图片";
-            else if (entry.Type == "filelist") typeLabel = "文件";
-            else if (entry.Type == "richtext") typeLabel = "富文本";
-            else if (entry.Type == "html") typeLabel = "HTML";
-            try { _trayIcon.ShowBalloonTip(2000, "ClipLite", "✔ " + typeLabel, ToolTipIcon.Info); } catch { }
+            // ── DIAGNOSTIC: sound + desktop log ──
+            try
+            {
+                System.Media.SystemSounds.Asterisk.Play();
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                        "ClipLite_启动日志.txt"),
+                    "OnEntryCopied at " + DateTime.Now.ToString("HH:mm:ss.fff")
+                    + " type=" + (entry.Type ?? "null") + "\r\n");
+            }
+            catch { }
         }
 
         // ── Startup clipboard capture ──

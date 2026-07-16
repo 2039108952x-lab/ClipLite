@@ -1,146 +1,121 @@
+# ClipLite
 
-# ClipLite — Ultra-lightweight Clipboard Manager for Windows
+> **English** | [简体中文](README.md)
 
-[![.NET Framework 4.8](https://img.shields.io/badge/.NET%20Framework-4.8-blue)](https://dotnet.microsoft.com/download/dotnet-framework/net48)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Downloads](https://img.shields.io/github/v/release/2039108952x-lab/ClipLite)](https://github.com/2039108952x-lab/ClipLite/releases)
+<p align="center">
+  <img src="docs/images/cliplite-hero.png" alt="ClipLite product preview" width="100%">
+</p>
 
-**ClipLite** is an ultra-lightweight, portable clipboard manager for Windows. One single EXE — **25 KB** — zero dependencies, zero ads, instant launch.
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 / 11">
+  <img src="https://img.shields.io/badge/.NET%20Framework-4.8-512BD4" alt=".NET Framework 4.8">
+  <img src="https://img.shields.io/badge/UI-WinForms-0F6CBD" alt="WinForms">
+  <img src="https://img.shields.io/badge/License-MIT-2EA44F" alt="MIT License">
+</p>
 
-![screenshot](screenshot.png)
+ClipLite is a lightweight clipboard history utility built specifically for Windows. Its native WinForms interface combines instant access, multi-format history, full-text search, pinning, configurable hotkeys, and local-first storage without third-party UI libraries or an installer.
 
-> [中文版](README.md) | [English](README_EN.md)
+## Why ClipLite
 
----
+- **Multi-format history:** text, rich text, HTML, images, and file lists in one timeline.
+- **Fast workflow:** press `Ctrl + Shift + V`, select an entry, then paste anywhere.
+- **Local first:** history, assets, and settings remain beside the executable.
+- **Native and compact:** an approximately 90 KB single-file EXE with message-driven monitoring and no polling loop.
+- **Privacy controls:** exclude password managers and other sensitive apps; optional AES-256 history encryption.
 
-## Highlights
+## Interface
 
-| Metric | Value |
-|--------|-------|
-| EXE Size | **25 KB** (single file) |
-| Memory | ~8–10 MB (after GC settle) |
-| Launch Time | **< 50 ms** |
-| Hotkey Response | **Instant** (pre-created window) |
-| CPU Usage | **0%** (event-driven, no polling) |
-| Language | C# |
-| Framework | .NET Framework 4.8 (built into Windows) |
-| UI | WinForms |
-| License | MIT |
-
----
+<table>
+  <tr>
+    <td align="center"><strong>Clipboard history</strong></td>
+    <td align="center"><strong>Settings</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/history-panel.png" alt="ClipLite history panel" width="300"></td>
+    <td align="center"><img src="docs/images/settings-panel.png" alt="ClipLite settings panel" width="620"></td>
+  </tr>
+</table>
 
 ## Features
 
-### 1. Automatic Clipboard Monitoring
-- Uses system-level `WM_CLIPBOARDUPDATE` event — **zero CPU polling**
-- Text is auto-saved to history when copied
-- Stores up to **500 entries**, auto-removes oldest when full
+### History and search
 
-### 2. Smart Dedup + Anti Loopback
-- Each entry gets a **SHA256 fingerprint** (first 16 chars)
-- Duplicate content is moved to top instead of re-added
-- Auto-skips loopback when pasting from ClipLite itself
+- Event-driven clipboard monitoring through `WM_CLIPBOARDUPDATE`, with up to 500 entries.
+- Duplicate content moves to the top instead of creating redundant records.
+- Live search across text, paths, and HTML previews.
+- Hover actions for pin, copy, and delete; pinned entries remain above regular history.
 
-### 3. Global Hotkey
-- `Ctrl + Shift + V` — toggle history panel
-- `↑ ↓` — navigate items · `Enter` — copy & close · `Delete` — remove · `Esc` — close
-- Registered via Win32 `RegisterHotKey`, works system-wide
+### Hotkeys and copy feedback
 
-### 4. One-click Reuse
-- Click or press Enter on any item → auto-copy to clipboard → panel hides → `Ctrl + V` to paste
+- Record a global hotkey directly in Settings and validate conflicts before saving.
+- Transactional registration keeps the previous hotkey active when a new combination is unavailable.
+- Optional non-activating success capsule at the bottom of the current screen.
+- Clipboard writes are retried when busy and only report success after the write actually completes.
 
-### 5. Full-text Search
-- Real-time filter bar on top of panel
-- Case-insensitive, matches any text fragment
+### Settings and storage
 
-### 6. Pin Management
-- Pin important items (`IsPinned` field) — they stay at top permanently with an orange badge
+- Full-format or text-only capture mode.
+- Auto-start, copy feedback, file details, and excluded apps in one settings window.
+- JSONL index, separate asset storage, rolling backups, and orphan cleanup.
+- 500-entry and 50 MB defaults, with live usage and entry counts in Settings.
 
-### 7. System Tray Background
-- Runs silently in system tray after launch
-- Right-click menu: Show History / Pause / Resume / Clear / Quit
-- Double-click tray icon to open history panel
+## Quick start
 
-### 8. JSON Persistence
-- History saved to `cliplite_history.json` next to EXE
-- Pure text, human-readable, lightweight
-- Fields: `id` (hash), `text`, `time` (ISO), `pinned`
+### Download and run
 
----
+1. Download `ClipLite.exe` from [Releases](https://github.com/2039108952x-lab/ClipLite/releases).
+2. Run it; ClipLite stays available from the system tray.
+3. Press `Ctrl + Shift + V` or use the tray menu to open history.
 
-## Project Structure
+> Existing installations keep their locally configured hotkey. It can be changed or disabled in Settings.
 
-```
-ClipLite/
-├── Program.cs           # Entry point + app orchestration
-├── Models.cs            # Data models + JSON storage
-├── Services.cs          # Clipboard monitor + hotkey manager
-├── HistoryForm.cs       # History panel UI
-├── build.bat            # One-click build script
-├── ClipLite.exe         # Build output (25 KB)
-└── README.md            # Documentation (Chinese)
-```
-
-### Architecture (3-Tier)
-
-| Layer | Components |
-|-------|-----------|
-| Presentation | `HistoryForm.cs` — borderless popup, search, custom-drawn list |
-| Business Logic | `Services.cs` — `ClipboardMonitor` (Win32 message window), `HotkeyManager` (RegisterHotKey) |
-| Data | `Models.cs` — `ClipboardEntry` model + `JsonStorage` (manual serialize, no external deps, max 500) |
-
----
-
-## Quick Start
-
-### Option 1: Download & Run
-
-Download `ClipLite.exe` (25 KB) from [Releases](https://github.com/2039108952x-lab/ClipLite/releases), double-click to run.
-
-Press `Ctrl + Shift + V` to open the history panel.
-
-### Option 2: Build from Source
+### Build from source
 
 ```bat
+git clone https://github.com/2039108952x-lab/ClipLite.git
 cd ClipLite
 build.bat
 ```
 
-Output: `ClipLite.exe` (25 KB).
+Requirements: Windows 10/11 and .NET Framework 4.8. The build script calls the system `csc.exe` directly, with no NuGet packages or Visual Studio project required.
 
-**Requirements:** Windows 10/11 with .NET Framework 4.8 (pre-installed). Nothing else needed.
+## Keyboard controls
 
----
+| Action | Control |
+| --- | --- |
+| Open / hide history | `Ctrl + Shift + V` by default; configurable |
+| Search | Start typing after opening the panel |
+| Navigate | `↑` / `↓` |
+| Copy and close | `Enter` or click an entry |
+| Delete | `Delete` or the hover delete button |
+| Close | `Esc` |
 
-## Tech Stack
+## Data and privacy
 
-| Area | Choice |
-|------|--------|
-| Language | C# 5.0 |
-| Framework | .NET Framework 4.8 |
-| UI | WinForms |
-| Graphics | System.Drawing |
-| Compiler | csc.exe (built into Windows) |
-| Storage | JSON file |
-| Build | Single `build.bat` command |
+All data is stored beside `ClipLite.exe`:
 
----
+```text
+cliplite_settings.json
+cliplite_data/
+├── index.jsonl
+├── index.jsonl.bak1 ... bak3
+└── assets/
+```
 
-## FAQ
+ClipLite requires no account, does not upload clipboard content, and does not depend on a remote service. Add password managers or other sensitive applications to the excluded-app list when they should never be captured.
 
-**Q: How to change the hotkey?**  
-A: Edit `VK_V` and `MOD_CONTROL | MOD_SHIFT` constants in `Services.cs` → `HotkeyManager`, then rebuild.
+## Project structure
 
-**Q: Max history entries?**  
-A: 500 by default. Change `MaxEntries` in `Models.cs`.
-
-**Q: Where is the JSON history file?**  
-A: Same directory as `ClipLite.exe`, file named `cliplite_history.json`. Delete it to clear history.
-
-**Q: How to auto-start on boot?**  
-A: Create a shortcut to `ClipLite.exe` and place it in `shell:startup`.
-
----
+```text
+Program.cs             Application lifecycle and event orchestration
+Services.cs            Clipboard monitoring and transactional hotkey registration
+Models.cs              Entry model, JSONL storage, and asset management
+HistoryForm.cs         Clipboard history panel
+SettingsForm.cs        Settings window
+CopyFeedback.cs        Non-activating copy feedback capsule
+UiTheme.cs             Colors, typography, rounded geometry, and DWM effects
+build.bat              Single-command build script
+```
 
 ## License
 

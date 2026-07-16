@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -9,51 +10,32 @@ namespace ClipLite
 {
     public class HistoryForm : Form
     {
-        // ── Cached GDI+ resources (avoid creation/disposal per OnDrawItem) ──
-        private static readonly Brush _bgNormal = new SolidBrush(Color.FromArgb(250, 250, 250));
-        private static readonly Brush _bgSelected = new SolidBrush(Color.FromArgb(200, 220, 240));
-        private static readonly Brush _bgHover = new SolidBrush(Color.FromArgb(235, 245, 252));
-        private static readonly Pen _sepPen = new Pen(Color.FromArgb(235, 235, 235));
-        private static readonly Brush _pinBrush = new SolidBrush(Color.FromArgb(255, 160, 0));
-        private static readonly Brush _textBrush = new SolidBrush(Color.FromArgb(40, 40, 40));
-        private static readonly Brush _infoBrush = new SolidBrush(Color.FromArgb(150, 150, 150));
-        private static readonly Brush _copyBtnBg = new SolidBrush(Color.FromArgb(245, 245, 245));
-        private static readonly Pen _copyBtnBorder = new Pen(Color.FromArgb(200, 200, 200));
-        private static readonly Brush _copyBtnText = new SolidBrush(Color.FromArgb(0, 100, 200));
-        private static readonly Brush _delBtnText = new SolidBrush(Color.FromArgb(200, 60, 60));
-        private static readonly Brush _pinBtnText = new SolidBrush(Color.FromArgb(230, 130, 0));
-        private static readonly Brush _pinBtnActiveBg = new SolidBrush(Color.FromArgb(255, 180, 60));
-        private static readonly Pen _pinBtnActiveBorder = new Pen(Color.FromArgb(220, 150, 40));
-        private static readonly Font _pinFont = new Font("Segoe UI", 7, FontStyle.Bold);
-        private static readonly Font _textFont = new Font("Segoe UI", 10);
-        private static readonly Font _infoFont = new Font("Segoe UI", 8);
-        private static readonly Font _btnFont = new Font("Segoe UI", 8);
+        private const int WindowWidth = 380;
+        private const int WindowHeight = 560;
+        private const int ItemHeight = 64;
 
         private TextBox _searchBox;
+        private RoundedPanel _searchContainer;
         private BufferedListBox _listBox;
-        private Label _closeBtn;
+        private Button _settingsButton;
+        private Button _closeButton;
+        private Label _emptyLabel;
+        private StatusPill _statusPill;
+        private Timer _statusTimer;
+        private ToolTip _toolTip;
+
         private List<ClipboardEntry> _allEntries = new List<ClipboardEntry>();
         private List<ClipboardEntry> _filteredEntries = new List<ClipboardEntry>();
-        private ThumbnailCache _thumbCache;
-        private SafeStorage _storage;
-        private Dictionary<string, Image> _thumbCacheLocal = new Dictionary<string, Image>();
         private int _hoveredIndex = -1;
-        private Label _statusLabel;
-        private Timer _statusTimer;
+        private string _lastToolTip = "";
 
         public event Action<string> ItemSelected;
-#pragma warning disable 67  // EntryCopied is subscribed externally
         public event Action<ClipboardEntry> EntryCopied;
-
-#pragma warning restore 67
+        public event Action SettingsRequested;
 
         public HistoryForm(SafeStorage storage, ThumbnailCache thumbCache)
         {
             InitializeComponent();
-            this.DoubleBuffered = true;
-            _storage = storage;
-
-            _thumbCache = thumbCache;
             UpdateFilter();
         }
 
@@ -64,110 +46,226 @@ namespace ClipLite
 
         private void InitializeComponent()
         {
-            this.Text = "ClipLite";
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.ShowInTaskbar = false;
-            this.TopMost = true;
-            this.Width = 620;
-            this.Height = 520;
-            this.StartPosition = FormStartPosition.Manual;
-            this.BackColor = Color.FromArgb(250, 250, 250);
+            SuspendLayout();
 
-            var titleBar = new Panel
+            Text = "ClipLite";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            ClientSize = new Size(WindowWidth, WindowHeight);
+            MinimumSize = new Size(WindowWidth, WindowHeight);
+            MaximumSize = new Size(WindowWidth, WindowHeight);
+            StartPosition = FormStartPosition.Manual;
+            BackColor = UiTheme.Surface;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw, true);
+
+            var header = new Panel
             {
-                Height = 36,
-                Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(240, 240, 240)
+                Location = new Point(0, 0),
+                Size = new Size(WindowWidth, 48),
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            var titleLabel = new Label
+            var title = new Label
             {
                 Text = "剪贴板历史",
-                Font = new Font("Segoe UI", 10, FontStyle.Regular),
-                ForeColor = Color.FromArgb(60, 60, 60),
-                Left = 12,
-                Top = 8,
-                AutoSize = true
+                Font = UiTheme.HeaderFont,
+                ForeColor = UiTheme.OnSurface,
+                Location = new Point(16, 14),
+                AutoSize = true,
+                BackColor = Color.Transparent
             };
-            titleBar.Controls.Add(titleLabel);
+            header.Controls.Add(title);
 
-            _closeBtn = new Label
+            _settingsButton = CreateHeaderButton("⚙", "设置");
+            _settingsButton.Location = new Point(WindowWidth - 70, 9);
+            _settingsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _settingsButton.Click += (s, e) =>
             {
-                Text = "X",
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Color.FromArgb(120, 120, 120),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Size = new Size(28, 28),
-                Location = new Point(this.Width - 36, 4),
-                Cursor = Cursors.Hand
+                Hide();
+                if (SettingsRequested != null) SettingsRequested();
             };
-            _closeBtn.MouseEnter += (s, e) => _closeBtn.ForeColor = Color.FromArgb(0, 0, 0);
-            _closeBtn.MouseLeave += (s, e) => _closeBtn.ForeColor = Color.FromArgb(120, 120, 120);
-            _closeBtn.Click += (s, e) => Hide();
-            titleBar.Controls.Add(_closeBtn);
+            header.Controls.Add(_settingsButton);
+
+            _closeButton = CreateHeaderButton("×", "关闭");
+            _closeButton.Location = new Point(WindowWidth - 38, 9);
+            _closeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _closeButton.Click += (s, e) => Hide();
+            header.Controls.Add(_closeButton);
+
+            _searchContainer = new RoundedPanel
+            {
+                Location = new Point(12, 52),
+                Size = new Size(WindowWidth - 24, 36),
+                Radius = 5,
+                FillColor = Color.FromArgb(252, 252, 252),
+                BorderColor = UiTheme.OutlineSoft,
+                FocusBorderColor = UiTheme.Primary,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            var searchIcon = new SearchIconControl
+            {
+                Location = new Point(10, 9),
+                Size = new Size(18, 18),
+                BackColor = Color.Transparent
+            };
+            _searchContainer.Controls.Add(searchIcon);
 
             _searchBox = new TextBox
             {
-                Location = new Point(6, 44),
-                Width = 608,
-                Height = 30,
-                Font = new Font("Segoe UI", 11),
-                BorderStyle = BorderStyle.FixedSingle,
-                ForeColor = Color.FromArgb(80, 80, 80)
+                Location = new Point(34, 8),
+                Width = WindowWidth - 72,
+                Height = 22,
+                BorderStyle = BorderStyle.None,
+                Font = new Font(UiTheme.FontFamilyName, 9.0f),
+                ForeColor = UiTheme.OnSurface,
+                BackColor = Color.FromArgb(252, 252, 252),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             _searchBox.TextChanged += (s, e) => UpdateFilter();
             _searchBox.KeyDown += OnSearchKeyDown;
+            _searchBox.HandleCreated += (s, e) => SetCueBanner(_searchBox, "搜索剪贴板内容...");
+            _searchBox.Enter += (s, e) => { _searchContainer.HasInputFocus = true; };
+            _searchBox.Leave += (s, e) => { _searchContainer.HasInputFocus = false; };
+            _searchContainer.Controls.Add(_searchBox);
 
             _listBox = new BufferedListBox
             {
-                Location = new Point(6, 82),
-                Width = 608,
-                Height = 428,
+                Location = new Point(12, 96),
+                Size = new Size(WindowWidth - 24, WindowHeight - 108),
                 BorderStyle = BorderStyle.None,
-                DrawMode = DrawMode.OwnerDrawVariable,
+                DrawMode = DrawMode.OwnerDrawFixed,
+                ItemHeight = ItemHeight,
                 IntegralHeight = false,
-                Font = new Font("Segoe UI", 10),
-                BackColor = Color.FromArgb(250, 250, 250)
+                Font = UiTheme.ItemFont,
+                BackColor = UiTheme.Surface,
+                ForeColor = UiTheme.OnSurface,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom |
+                         AnchorStyles.Left | AnchorStyles.Right
             };
             _listBox.DrawItem += OnDrawItem;
-            _listBox.MeasureItem += OnMeasureItem;
-            _listBox.MouseDoubleClick += (s, e) => { var idx = _listBox.IndexFromPoint(e.Location); if (idx >= 0) SelectItem(idx); };
             _listBox.MouseClick += OnListMouseClick;
             _listBox.KeyDown += OnListKeyDown;
             _listBox.MouseMove += OnListMouseMove;
-            _listBox.MouseLeave += (s, e) => { _hoveredIndex = -1; _listBox.Invalidate(); };
-
-            this.Controls.Add(titleBar);
-            this.Controls.Add(_searchBox);
-            this.Controls.Add(_listBox);
-
-            // ── Status label at bottom ──
-            _statusLabel = new Label
+            _listBox.MouseLeave += (s, e) =>
             {
-                Text = "",
-                Font = new Font("Segoe UI", 9, FontStyle.Regular),
-                ForeColor = Color.FromArgb(0, 160, 60),
-                BackColor = Color.FromArgb(240, 250, 240),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Bottom,
-                Height = 28,
-                Visible = false
+                int previous = _hoveredIndex;
+                _hoveredIndex = -1;
+                InvalidateItem(previous);
+                SetListToolTip("");
             };
-            this.Controls.Add(_statusLabel);
 
-            _statusTimer = new Timer { Interval = 2000 };
-            _statusTimer.Tick += (s, e) => { _statusTimer.Stop(); _statusLabel.Visible = false; };
+            _emptyLabel = new Label
+            {
+                Text = "暂无剪贴板记录",
+                Font = new Font(UiTheme.FontFamilyName, 9.0f),
+                ForeColor = Color.FromArgb(125, 130, 138),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Location = _listBox.Location,
+                Size = _listBox.Size,
+                BackColor = UiTheme.Surface,
+                Visible = false,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom |
+                         AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            _statusPill = new StatusPill
+            {
+                Size = new Size(160, 32),
+                Visible = false,
+                Anchor = AnchorStyles.Bottom
+            };
+
+            _statusTimer = new Timer { Interval = 1800 };
+            _statusTimer.Tick += (s, e) =>
+            {
+                _statusTimer.Stop();
+                _statusPill.Visible = false;
+            };
+
+            _toolTip = new ToolTip
+            {
+                InitialDelay = 450,
+                ReshowDelay = 100,
+                AutoPopDelay = 2500,
+                ShowAlways = true
+            };
+            _toolTip.SetToolTip(_settingsButton, "设置");
+            _toolTip.SetToolTip(_closeButton, "关闭");
+
+            Controls.Add(header);
+            Controls.Add(_searchContainer);
+            Controls.Add(_listBox);
+            Controls.Add(_emptyLabel);
+            Controls.Add(_statusPill);
+
+            Layout += (s, e) => PositionStatusPill();
+            ResumeLayout(false);
         }
 
-        protected override CreateParams CreateParams
+        private Button CreateHeaderButton(string text, string accessibleName)
         {
-            get
+            var button = new Button
             {
-                const int CS_DROPSHADOW = 0x00020000;
-                var cp = base.CreateParams;
-                cp.ClassStyle |= CS_DROPSHADOW;
-                return cp;
+                Text = text,
+                AccessibleName = accessibleName,
+                Size = new Size(28, 28),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI Symbol", text == "×" ? 14.0f : 10.0f),
+                ForeColor = UiTheme.OnSurfaceVariant,
+                BackColor = UiTheme.Surface,
+                Cursor = Cursors.Hand,
+                TabStop = false,
+                UseVisualStyleBackColor = false
+            };
+            button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseOverBackColor = UiTheme.SurfaceContainerHigh;
+            button.FlatAppearance.MouseDownBackColor = UiTheme.SurfaceContainer;
+            return button;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            NativeWindowEffects.Apply(this);
+            SetCueBanner(_searchBox, "搜索剪贴板内容...");
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            NativeWindowEffects.ApplyRoundedRegion(this, 8);
+            PositionStatusPill();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var pen = new Pen(Color.FromArgb(205, 209, 218)))
+            {
+                var bounds = new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+                UiTheme.DrawRoundedRectangle(e.Graphics, pen, bounds, 8);
             }
+        }
+
+        private const int EmSetCueBanner = 0x1501;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, string lParam);
+
+        private static void SetCueBanner(TextBox textBox, string text)
+        {
+            if (textBox == null || !textBox.IsHandleCreated) return;
+            try { SendMessage(textBox.Handle, EmSetCueBanner, (IntPtr)1, text); }
+            catch { }
         }
 
         public void SetEntries(List<ClipboardEntry> entries)
@@ -191,11 +289,11 @@ namespace ClipLite
 
         public void MoveToTop(string entryId)
         {
-            int idx = _allEntries.FindIndex(e => e.Id == entryId);
-            if (idx > 0)
+            int index = _allEntries.FindIndex(e => e.Id == entryId);
+            if (index > 0)
             {
-                var entry = _allEntries[idx];
-                _allEntries.RemoveAt(idx);
+                var entry = _allEntries[index];
+                _allEntries.RemoveAt(index);
                 _allEntries.Insert(0, entry);
                 UpdateFilter();
             }
@@ -232,38 +330,41 @@ namespace ClipLite
         public void DeleteSelected()
         {
             if (_listBox.SelectedIndex >= 0 && _listBox.SelectedIndex < _filteredEntries.Count)
-            {
-                var entry = _filteredEntries[_listBox.SelectedIndex];
-                RemoveEntry(entry.Id);
-            }
+                RemoveEntry(_filteredEntries[_listBox.SelectedIndex].Id);
         }
 
         private void UpdateFilter()
         {
-            string searchText = _searchBox.Text;
-            string query = (searchText != null) ? searchText.Trim() : "";
-            if (string.IsNullOrEmpty(query))
+            string query = (_searchBox == null ? "" : _searchBox.Text ?? "").Trim();
+            IEnumerable<ClipboardEntry> entries = _allEntries;
+
+            if (!string.IsNullOrEmpty(query))
             {
-                _filteredEntries = _allEntries
-                    .OrderByDescending(e => e.IsPinned)
-                    .ThenByDescending(e => e.Timestamp)
-                    .ToList();
-            }
-            else
-            {
-                _filteredEntries = _allEntries
-                    .Where(e => e.Text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
-                    .OrderByDescending(e => e.IsPinned)
-                    .ThenByDescending(e => e.Timestamp)
-                    .ToList();
+                entries = entries.Where(e =>
+                    (e.Text ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (e.PreviewText ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
+            _filteredEntries = entries
+                .OrderByDescending(e => e.IsPinned)
+                .ThenByDescending(e => e.Timestamp)
+                .ToList();
+
+            if (_listBox == null) return;
             _listBox.BeginUpdate();
-            _hoveredIndex = -1; // reset stale hover index to avoid crash on GetItemRectangle
+            _hoveredIndex = -1;
             _listBox.Items.Clear();
             foreach (var entry in _filteredEntries)
                 _listBox.Items.Add(entry);
             _listBox.EndUpdate();
+
+            bool empty = _filteredEntries.Count == 0;
+            _emptyLabel.Text = string.IsNullOrEmpty(query)
+                ? "暂无剪贴板记录"
+                : "没有匹配的记录";
+            _emptyLabel.Visible = empty;
+            if (empty) _emptyLabel.BringToFront();
+            _statusPill.BringToFront();
         }
 
         private void OnSearchKeyDown(object sender, KeyEventArgs e)
@@ -279,8 +380,7 @@ namespace ClipLite
             }
             else if (e.KeyCode == Keys.Enter)
             {
-                if (_listBox.Items.Count > 0)
-                    SelectItem(0);
+                if (_listBox.Items.Count > 0) SelectItem(0);
                 e.SuppressKeyPress = true;
             }
             else if (e.KeyCode == Keys.Escape)
@@ -311,28 +411,56 @@ namespace ClipLite
 
         private void OnListMouseMove(object sender, MouseEventArgs e)
         {
-            int idx = _listBox.IndexFromPoint(e.Location);
-            
-            // Only track hover for button display — no auto-select (avoids flickering)
-            if (idx != _hoveredIndex)
+            int index = _listBox.IndexFromPoint(e.Location);
+            if (index != _hoveredIndex)
             {
-                int oldIdx = _hoveredIndex;
-                _hoveredIndex = idx;
-                
-                // Guard: InvalidateItem only if the index is within current bounds
-                if (oldIdx >= 0 && oldIdx < _listBox.Items.Count)
-                    _listBox.Invalidate(_listBox.GetItemRectangle(oldIdx));
-                if (idx >= 0 && idx < _listBox.Items.Count)
-                    _listBox.Invalidate(_listBox.GetItemRectangle(idx));
+                int previous = _hoveredIndex;
+                _hoveredIndex = index;
+                InvalidateItem(previous);
+                InvalidateItem(index);
             }
+
+            string tip = "";
+            if (index >= 0 && index < _listBox.Items.Count)
+            {
+                if (GetPinButtonRect(index).Contains(e.Location)) tip = "置顶/取消置顶";
+                else if (GetCopyButtonRect(index).Contains(e.Location)) tip = "复制";
+                else if (GetDeleteButtonRect(index).Contains(e.Location)) tip = "删除";
+            }
+            SetListToolTip(tip);
+        }
+
+        private void SetListToolTip(string text)
+        {
+            if (_lastToolTip == text) return;
+            _lastToolTip = text;
+            _toolTip.SetToolTip(_listBox, text);
+        }
+
+        private void InvalidateItem(int index)
+        {
+            if (index >= 0 && index < _listBox.Items.Count)
+                _listBox.Invalidate(_listBox.GetItemRectangle(index));
         }
 
         public void ShowStatus(string text)
         {
-            _statusLabel.Text = text;
-            _statusLabel.Visible = true;
+            if (!Visible) return;
+            _statusPill.Text = text;
+            int width = TextRenderer.MeasureText(text, UiTheme.MetaFont).Width + 34;
+            _statusPill.Width = Math.Max(128, Math.Min(230, width));
+            PositionStatusPill();
+            _statusPill.Visible = true;
+            _statusPill.BringToFront();
             _statusTimer.Stop();
             _statusTimer.Start();
+        }
+
+        private void PositionStatusPill()
+        {
+            if (_statusPill == null) return;
+            _statusPill.Left = Math.Max(0, (ClientSize.Width - _statusPill.Width) / 2);
+            _statusPill.Top = Math.Max(0, ClientSize.Height - _statusPill.Height - 20);
         }
 
         private void SelectItem(int index)
@@ -340,8 +468,10 @@ namespace ClipLite
             if (index < 0 || index >= _filteredEntries.Count) return;
             var entry = _filteredEntries[index];
             if (ItemSelected != null) ItemSelected(entry.Text);
-            if (EntryCopied != null) EntryCopied(entry);
+
+            // Hide first so copy feedback uses the non-activating floating pill.
             Hide();
+            if (EntryCopied != null) EntryCopied(entry);
         }
 
         private void OnDrawItem(object sender, DrawItemEventArgs e)
@@ -349,146 +479,175 @@ namespace ClipLite
             if (e.Index < 0 || e.Index >= _listBox.Items.Count) return;
 
             var entry = (ClipboardEntry)_listBox.Items[e.Index];
-            var g = e.Graphics;
+            var graphics = e.Graphics;
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
             var bounds = e.Bounds;
+            using (var clearBrush = new SolidBrush(UiTheme.Surface))
+                graphics.FillRectangle(clearBrush, bounds);
 
+            var card = new Rectangle(bounds.X + 1, bounds.Y + 2,
+                Math.Max(1, bounds.Width - 3), Math.Max(1, bounds.Height - 4));
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected ||
-                            (_listBox.SelectedIndex == e.Index);
+                            _listBox.SelectedIndex == e.Index;
+            bool hovered = e.Index == _hoveredIndex;
 
-            bool hovered = (e.Index == _hoveredIndex);
-
-            // Background: selected → blue, hovered → light blue, normal → white
-            Brush bg = selected ? _bgSelected : (hovered ? _bgHover : _bgNormal);
-            g.FillRectangle(bg, bounds);
-
-            // Separator line
-            g.DrawLine(_sepPen, bounds.X + 8, bounds.Bottom - 1, bounds.Right - 8, bounds.Bottom - 1);
-
-            int x = bounds.X + 6;
-            int y = bounds.Y + 5;
-            int maxW = bounds.Width - 12;
-
-            if (entry.IsPinned)
+            if (selected || hovered)
             {
-                g.DrawString("置顶", _pinFont, _pinBrush, x, y);
-                y += 14;
+                Color fill = selected ? UiTheme.PrimarySoft : UiTheme.SurfaceContainerLow;
+                using (var brush = new SolidBrush(fill))
+                    UiTheme.FillRoundedRectangle(graphics, brush, card, 5);
             }
 
-            // Preview text
-            string preview = entry.PreviewText;
-            var textRect = new Rectangle(x, y, maxW, 22);
-            TextRenderer.DrawText(g, preview, _textFont, textRect, Color.FromArgb(40, 40, 40),
-                TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            if (selected)
+            {
+                var indicator = new Rectangle(card.X + 2, card.Y + 10, 3, card.Height - 20);
+                using (var brush = new SolidBrush(UiTheme.Primary))
+                    UiTheme.FillRoundedRectangle(graphics, brush, indicator, 2);
+            }
 
-            // Type + timestamp (bottom line)
-            string typeText = entry.TypeDisplay;
-            string timeText = entry.TimeDisplay;
-            TextRenderer.DrawText(g, typeText, _infoFont,
-                new Rectangle(x, bounds.Bottom - 17, 80, 16), Color.FromArgb(150, 150, 150),
-                TextFormatFlags.NoPrefix);
-            Size timeSz = TextRenderer.MeasureText(timeText, _infoFont);
-            TextRenderer.DrawText(g, timeText, _infoFont,
-                new Rectangle(bounds.Right - timeSz.Width - 8, bounds.Bottom - 17, timeSz.Width, 16),
-                Color.FromArgb(150, 150, 150), TextFormatFlags.NoPrefix);
+            int contentX = card.X + 12;
+            int actionWidth = hovered ? 82 : 0;
+            int textWidth = Math.Max(40, card.Width - 24 - actionWidth);
+            var textRect = new Rectangle(contentX, card.Y + 7, textWidth, 31);
+            TextRenderer.DrawText(graphics, entry.PreviewText ?? "", UiTheme.ItemFont,
+                textRect, UiTheme.OnSurface,
+                TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis |
+                TextFormatFlags.NoPrefix | TextFormatFlags.TextBoxControl);
 
-            // Hover buttons (pin + copy + delete, shown only on hovered item)
+            int metaY = card.Bottom - 19;
+            int nextX = contentX;
+            nextX += DrawChip(graphics, entry.TypeDisplay, nextX, metaY,
+                UiTheme.OnSurfaceVariant, UiTheme.OutlineSoft) + 6;
+            if (entry.IsPinned)
+                DrawChip(graphics, "置顶", nextX, metaY, UiTheme.Tertiary,
+                    Color.FromArgb(230, 181, 145));
+
+            string time = entry.TimeDisplay;
+            Size timeSize = TextRenderer.MeasureText(time, UiTheme.MetaFont,
+                new Size(120, 18), TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(graphics, time, UiTheme.MetaFont,
+                new Rectangle(card.Right - timeSize.Width - 10, metaY + 1,
+                    timeSize.Width, 16),
+                Color.FromArgb(122, 128, 137),
+                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+
             if (hovered)
             {
-                var pinRect  = GetPinButtonRect(e.Index);
-                var copyRect = GetCopyButtonRect(e.Index);
-                var delRect  = GetDeleteButtonRect(e.Index);
+                DrawActionButton(graphics, GetPinButtonRect(e.Index), ActionKind.Pin,
+                    entry.IsPinned ? UiTheme.Tertiary : UiTheme.OnSurfaceVariant);
+                DrawActionButton(graphics, GetCopyButtonRect(e.Index), ActionKind.Copy,
+                    UiTheme.Primary);
+                DrawActionButton(graphics, GetDeleteButtonRect(e.Index), ActionKind.Delete,
+                    UiTheme.Error);
+            }
+        }
 
-                // Pin button — orange bg when already pinned
-                if (entry.IsPinned)
+        private int DrawChip(Graphics graphics, string text, int x, int y,
+            Color textColor, Color borderColor)
+        {
+            Size measured = TextRenderer.MeasureText(text, UiTheme.ChipFont,
+                new Size(80, 16), TextFormatFlags.NoPadding);
+            int width = measured.Width + 10;
+            var rect = new Rectangle(x, y, width, 16);
+            using (var pen = new Pen(borderColor))
+                UiTheme.DrawRoundedRectangle(graphics, pen, rect, 3);
+            TextRenderer.DrawText(graphics, text, UiTheme.ChipFont,
+                new Rectangle(rect.X + 5, rect.Y + 1, rect.Width - 10, rect.Height - 2),
+                textColor, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix |
+                TextFormatFlags.VerticalCenter);
+            return width;
+        }
+
+        private enum ActionKind { Pin, Copy, Delete }
+
+        private void DrawActionButton(Graphics graphics, Rectangle rect,
+            ActionKind kind, Color iconColor)
+        {
+            using (var brush = new SolidBrush(Color.FromArgb(248, 248, 248)))
+                UiTheme.FillRoundedRectangle(graphics, brush, rect, 4);
+            using (var pen = new Pen(UiTheme.OutlineSoft))
+                UiTheme.DrawRoundedRectangle(graphics, pen, rect, 4);
+
+            using (var pen = new Pen(iconColor, 1.35f))
+            {
+                pen.StartCap = LineCap.Round;
+                pen.EndCap = LineCap.Round;
+                int cx = rect.X + rect.Width / 2;
+                int cy = rect.Y + rect.Height / 2;
+
+                if (kind == ActionKind.Copy)
                 {
-                    g.FillRectangle(_pinBtnActiveBg, pinRect);
-                    g.DrawRectangle(_pinBtnActiveBorder, pinRect);
-                    TextRenderer.DrawText(g, "置顶", _btnFont, pinRect, Color.White,
-                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                    graphics.DrawRectangle(pen, cx - 5, cy - 4, 8, 8);
+                    graphics.DrawRectangle(pen, cx - 2, cy - 7, 8, 8);
+                }
+                else if (kind == ActionKind.Delete)
+                {
+                    graphics.DrawLine(pen, cx - 4, cy - 4, cx + 4, cy + 4);
+                    graphics.DrawLine(pen, cx + 4, cy - 4, cx - 4, cy + 4);
                 }
                 else
                 {
-                    g.FillRectangle(_copyBtnBg, pinRect);
-                    g.DrawRectangle(_copyBtnBorder, pinRect);
-                    TextRenderer.DrawText(g, "置顶", _btnFont, pinRect, Color.FromArgb(230, 130, 0),
-                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                    graphics.DrawLine(pen, cx - 4, cy - 4, cx + 4, cy - 4);
+                    graphics.DrawLine(pen, cx - 3, cy - 4, cx - 1, cy + 1);
+                    graphics.DrawLine(pen, cx + 3, cy - 4, cx + 1, cy + 1);
+                    graphics.DrawLine(pen, cx - 1, cy + 1, cx + 1, cy + 1);
+                    graphics.DrawLine(pen, cx, cy + 1, cx, cy + 6);
                 }
-
-                // Copy button
-                g.FillRectangle(_copyBtnBg, copyRect);
-                g.DrawRectangle(_copyBtnBorder, copyRect);
-                TextRenderer.DrawText(g, "复制", _btnFont, copyRect, Color.FromArgb(0, 100, 200),
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-
-                // Delete button
-                g.FillRectangle(_copyBtnBg, delRect);
-                g.DrawRectangle(_copyBtnBorder, delRect);
-                TextRenderer.DrawText(g, "删除", _btnFont, delRect, Color.FromArgb(200, 60, 60),
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
         }
 
         private Rectangle GetPinButtonRect(int index)
         {
-            if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
-            var bounds = _listBox.GetItemRectangle(index);
-            return new Rectangle(bounds.Right - 118, bounds.Y + 4, 36, 20);
+            return GetActionButtonRect(index, 2);
         }
 
         private Rectangle GetCopyButtonRect(int index)
         {
-            if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
-            var bounds = _listBox.GetItemRectangle(index);
-            return new Rectangle(bounds.Right - 78, bounds.Y + 4, 36, 20);
+            return GetActionButtonRect(index, 1);
         }
 
         private Rectangle GetDeleteButtonRect(int index)
         {
+            return GetActionButtonRect(index, 0);
+        }
+
+        private Rectangle GetActionButtonRect(int index, int slotFromRight)
+        {
             if (index < 0 || index >= _listBox.Items.Count) return Rectangle.Empty;
-            var bounds = _listBox.GetItemRectangle(index);
-            return new Rectangle(bounds.Right - 38, bounds.Y + 4, 36, 20);
+            Rectangle bounds = _listBox.GetItemRectangle(index);
+            int x = bounds.Right - 28 - slotFromRight * 27;
+            return new Rectangle(x, bounds.Y + 7, 24, 24);
         }
 
         private void OnListMouseClick(object sender, MouseEventArgs e)
         {
             try
             {
-                int idx = _listBox.IndexFromPoint(e.Location);
-                if (idx < 0 || idx >= _listBox.Items.Count) return;
+                int index = _listBox.IndexFromPoint(e.Location);
+                if (index < 0 || index >= _filteredEntries.Count) return;
 
-                // Guard: _filteredEntries must match listbox items
-                if (idx >= _filteredEntries.Count) return;
-
-                var pinRect  = GetPinButtonRect(idx);
-                var copyRect = GetCopyButtonRect(idx);
-                var delRect  = GetDeleteButtonRect(idx);
-
-                if (delRect.Contains(e.Location))
+                var entry = _filteredEntries[index];
+                bool actionButtonsVisible = index == _hoveredIndex;
+                if (actionButtonsVisible && GetDeleteButtonRect(index).Contains(e.Location))
                 {
-                    var entry = _filteredEntries[idx];
                     RemoveEntry(entry.Id);
                     return;
                 }
-                if (pinRect.Contains(e.Location))
+                if (actionButtonsVisible && GetPinButtonRect(index).Contains(e.Location))
                 {
-                    var entry = _filteredEntries[idx];
                     TogglePin(entry.Id);
                     return;
                 }
-                // Click on "复制" button or item background → copy + hide
-                SelectItem(idx);
+
+                // The copy icon and the rest of the item share the fast copy action.
+                SelectItem(index);
             }
             catch
             {
-                // Prevent crash from causing UI to disappear
+                // Rapid list changes must never close the application.
             }
-        }
-
-        private void OnMeasureItem(object sender, MeasureItemEventArgs e)
-        {
-            if (e.Index < 0 || e.Index >= _listBox.Items.Count) return;
-            var entry = (ClipboardEntry)_listBox.Items[e.Index];
-            e.ItemHeight = entry.IsPinned ? 56 : 42;
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -506,118 +665,110 @@ namespace ClipLite
             base.OnDeactivate(e);
             Hide();
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_statusTimer != null) _statusTimer.Dispose();
+                if (_toolTip != null) _toolTip.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
-    /// <summary>
-    /// Double-buffered ListBox to eliminate flicker during owner-draw repaints.
-    /// </summary>
     internal class BufferedListBox : ListBox
     {
         public BufferedListBox()
         {
             DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.AllPaintingInWmPaint, true);
         }
     }
 
-    internal class ToastForm : Form
+    internal class RoundedPanel : Panel
     {
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-        private const int SW_SHOWNA = 8; // Show without activating
+        private bool _hasInputFocus;
 
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
-            int X, int Y, int cx, int cy, uint uFlags);
-        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        private const uint SWP_NOMOVE = 2;
-        private const uint SWP_NOSIZE = 1;
-        private const uint SWP_SHOWWINDOW = 0x0040;
+        public int Radius { get; set; }
+        public Color FillColor { get; set; }
+        public Color BorderColor { get; set; }
+        public Color FocusBorderColor { get; set; }
 
-        private Timer _timer;
-        private Label _label;
-        private static bool _toastEnabled = true;
-
-        public static bool ToastEnabled
+        public bool HasInputFocus
         {
-            get { return _toastEnabled; }
-            set { _toastEnabled = value; }
-        }
-
-        public static void ShowToast(string typeLabel)
-        {
-            if (!ToastEnabled) return;
-
-            try
+            get { return _hasInputFocus; }
+            set
             {
-                string text = "✔ 已复制";
-                if (!string.IsNullOrEmpty(typeLabel)) text += " (" + typeLabel + ")";
-
-                var toast = new ToastForm();
-                toast._label.Text = text;
-
-                // Force handle creation BEFORE positioning/showing
-                IntPtr h = toast.Handle;
-
-                int sw = Screen.PrimaryScreen.WorkingArea.Width;
-                int sh = Screen.PrimaryScreen.WorkingArea.Height;
-
-                // Force window to topmost and visible via P/Invoke
-                SetWindowPos(h, HWND_TOPMOST,
-                    (sw - toast.Width) / 2, sh - toast.Height - 50,
-                    toast.Width, toast.Height,
-                    SWP_SHOWWINDOW);
-
-                // Show without activating (so focus stays on previous window)
-                ShowWindow(h, SW_SHOWNA);
-            }
-            catch
-            {
-                // Toast is cosmetic only
+                if (_hasInputFocus == value) return;
+                _hasInputFocus = value;
+                Invalidate();
             }
         }
 
-        private ToastForm()
+        public RoundedPanel()
         {
-            Width = 220;
-            Height = 46;
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(45, 45, 45);
-
-            _label = new Label
-            {
-                Font = new Font("Segoe UI", 11, FontStyle.Regular),
-                ForeColor = Color.White,
-                BackColor = Color.Transparent,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Fill,
-                Cursor = Cursors.Hand
-            };
-            _label.Click += (s, e) => Close();
-            Controls.Add(_label);
-            Click += (s, e) => Close();
-
-            _timer = new Timer { Interval = 1500 };
-            _timer.Tick += (s, e) => { _timer.Stop(); Close(); };
+            DoubleBuffered = true;
+            Radius = 5;
+            FillColor = Color.White;
+            BorderColor = UiTheme.OutlineSoft;
+            FocusBorderColor = UiTheme.Primary;
+            BackColor = Color.Transparent;
         }
 
-        protected override void SetVisibleCore(bool value)
+        protected override void OnPaintBackground(PaintEventArgs e)
         {
-            // Force visible — prevent WinForms from suppressing the show
-            base.SetVisibleCore(value);
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            _timer.Start();
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && _timer != null) { _timer.Stop(); _timer.Dispose(); _timer = null; }
-            base.Dispose(disposing);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (var brush = new SolidBrush(FillColor))
+                UiTheme.FillRoundedRectangle(e.Graphics, brush, bounds, Radius);
+            using (var pen = new Pen(HasInputFocus ? FocusBorderColor : BorderColor))
+                UiTheme.DrawRoundedRectangle(e.Graphics, pen, bounds, Radius);
         }
     }
+
+    internal class SearchIconControl : Control
+    {
+        public SearchIconControl()
+        {
+            SetStyle(ControlStyles.SupportsTransparentBackColor |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var pen = new Pen(Color.FromArgb(145, 150, 160), 1.4f))
+            {
+                e.Graphics.DrawEllipse(pen, 3, 3, 8, 8);
+                e.Graphics.DrawLine(pen, 10, 10, 15, 15);
+            }
+        }
+    }
+
+    internal class StatusPill : Control
+    {
+        public StatusPill()
+        {
+            SetStyle(ControlStyles.SupportsTransparentBackColor |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            DoubleBuffered = true;
+            Font = UiTheme.MetaFont;
+            ForeColor = UiTheme.InverseOnSurface;
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var brush = new SolidBrush(UiTheme.InverseSurface))
+                UiTheme.FillRoundedRectangle(e.Graphics, brush,
+                    new Rectangle(0, 0, Width - 1, Height - 1), Height / 2);
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix);
+        }
+    }
+
 }

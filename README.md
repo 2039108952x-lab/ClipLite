@@ -1,229 +1,122 @@
-﻿# ClipLite - 极致轻量剪贴板管理器
+# ClipLite
 
+> [English](README_EN.md) | **简体中文**
 
-> [English](README_EN.md) | [中文](README.md)
-[![.NET Framework 4.8](https://img.shields.io/badge/.NET%20Framework-4.8-blue)](https://dotnet.microsoft.com/download/dotnet-framework/net48)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+<p align="center">
+  <img src="docs/images/cliplite-hero.png" alt="ClipLite 产品预览" width="100%">
+</p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 / 11">
+  <img src="https://img.shields.io/badge/.NET%20Framework-4.8-512BD4" alt=".NET Framework 4.8">
+  <img src="https://img.shields.io/badge/UI-WinForms-0F6CBD" alt="WinForms">
+  <img src="https://img.shields.io/badge/License-MIT-2EA44F" alt="MIT License">
+</p>
 
-![screenshot](screenshot.png)
----
+ClipLite 是一款专为 Windows 打造的轻量剪贴板历史工具。它用原生 WinForms 提供快速唤起、多格式记录、全文搜索、置顶管理和本地存储，不需要第三方 UI 库或额外安装器。
 
-## 简介
+## 为什么选择 ClipLite
 
-ClipLite 是一款 **极致轻量化 + 秒开体验 + 无广告绿色便携** 的 Windows 剪贴板管理器。
+- **多格式历史**：文本、富文本、HTML、图片和文件列表统一保存。
+- **快速工作流**：默认 `Ctrl + Shift + V` 唤起，点击记录即可回写剪贴板。
+- **本地优先**：历史、图片资产和设置均保存在程序目录，不依赖云服务。
+- **原生且小巧**：约 90 KB 单文件 EXE，基于 Windows 消息监听，无轮询。
+- **安全控制**：支持排除密码管理器等程序，并可选开启 AES-256 历史加密。
 
-旨在替代 Windows 原生剪贴板（Win+V），解决单次复制覆盖文本内容的核心痛点。基于 C# + WinForms + .NET Framework 4.8 构建，依赖系统自带运行时，即下即用。
+## 界面预览
 
-| 指标     | 目标值    | 实际值     |
-| -------- | -------- | -------- |
-| EXE 体积 | < 1 MB   | **25 KB** |
-| 后台内存 | 6~12 MB  | 实测约 8~10 MB（GC 稳定后） |
-| 启动时间 | < 200 ms | **< 50 ms** |
-| 热键唤起 | < 50 ms  | **即时**（窗口预创建） |
-| CPU 占用 | 0%       | **0%**（消息驱动，无轮询） |
+<table>
+  <tr>
+    <td align="center"><strong>剪贴板历史</strong></td>
+    <td align="center"><strong>设置中心</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/history-panel.png" alt="ClipLite 历史面板" width="300"></td>
+    <td align="center"><img src="docs/images/settings-panel.png" alt="ClipLite 设置面板" width="620"></td>
+  </tr>
+</table>
 
----
+## 核心功能
 
-## 功能说明
+### 历史与搜索
 
-### 1. 自动剪贴板监听
+- 通过 `WM_CLIPBOARDUPDATE` 监听系统剪贴板，最多保留 500 条记录。
+- 相同内容自动去重并移至顶部，置顶记录始终优先。
+- 输入即时搜索，支持长文本、路径和 HTML 预览。
+- 条目悬停时可直接置顶、复制或删除。
 
-- 监听系统级剪贴板变化事件（`WM_CLIPBOARDUPDATE`），**零 CPU 轮询**
-- 文本内容被复制时自动保存到历史列表
-- 最多保存 **500 条** 记录，超出时自动移除最旧条目
+### 快捷键与复制反馈
 
-### 2. Hash 去重 + 防回写
+- 在设置中直接录入全局快捷键，保存时检测冲突。
+- 新快捷键注册失败时自动保留原快捷键，不会让两者同时失效。
+- 复制成功后可在屏幕底部显示不抢焦点的圆角胶囊，也可在设置中完全关闭。
+- 剪贴板被其他程序占用时会重试，只在真正写入成功后报告成功。
 
-- 每条文本通过 **SHA256 取前 16 位** 生成唯一指纹
-- 相同内容不会被重复添加，仅移 **至列表顶部**（最近使用优先）
-- 从 ClipLite 选中复制时自动跳过本次回写，产生死循环
+### 设置与存储
 
-### 3. 全局热键唤起
-
-| 操作 | 快捷键 |
-| ---- | ---- |
-| 打开/隐藏历史面板 | `Ctrl + Shift + V` |
-| 关闭面板 | `Esc` |
-| 选中下一条 | `↓` 方向键（聚焦列表框后） |
-| 选中上一条 | `↑` 方向键 |
-| 删除当前条目 | `Delete` |
-| 切换到搜索框 | `↓`（搜索框聚焦时落入列表） |
-
-- 热键通过 Win32 `RegisterHotKey` 注册，全局生效
-- 历史面板在启动时 **预先创建**，热键按下时立即显示
-
-### 4. 一键复用
-
-- **鼠标点击** 或 **回车键** 选中条目
-- 自动复制该条目内容到剪贴板
-- 面板自动隐藏，直接 `Ctrl + V` 粘贴
-  - 无需额外操作，极速工作流
-
-### 5. 全文搜索
-
-- 面板顶部搜索框，**输入即搜**（实时过滤）
-- 不区分大小写，匹配历史记录中的任意文本片段
-- 搜索结果依然保留置顶排序
-
-### 6. 置顶管理
-
-- 代码支持按条目置顶（`IsPinned` 字段）
-- 置顶条目显示 **橙色「置顶」标记**，并永久排在列表顶部
-- 支持右键 Pin / Unpin（后续可扩展右键菜单）
-
-### 7. 托盘后台驻留
-
-- 启动后静默运行于系统托盘
-- 托盘右键菜单：
-
-| 菜单项 | 功能 |
-| ------ | ---- |
-| 显示历史 | 弹出历史面板 |
-| 暂停监听 | 停止收集新的剪贴板内容 |
-| 恢复监听 | 恢复收集 |
-| 清空历史 | 确认后清除所有记录 |
-| 退出 | 完全退出程序 |
-
-- 托盘图标 **双击** 也弹出历史面板
-- 图标为蓝色剪贴板，视觉辨识度高
-
-### 8. 数据持久化
-
-- 历史记录保存至 exe 同级目录下的 `cliplite_history.json`
-- JSON 格式，纯文本可读，体积小，启动快
-- 存储字段：`id`（Hash）、`text`（原文）、`time`（ISO 时间戳）、`pinned`（置顶标记）
-
----
-
-## 项目结构
-
-```
-ClipLite/
-├── .gitignore                      # Git 忽略规则
-├── .gitattributes                  # Git 属性配置（行尾处理）
-├── README.md                       # 本文件
-│
-├── Program.cs                      # 入口 + 应用编排
-├── Models.cs                       # 数据模型 + JSON 存储
-├── Services.cs                     # 剪贴板监听 + 热键管理
-├── HistoryForm.cs                  # 历史面板 UI
-│
-├── build.bat                       # 一键编译脚本
-├── ClipLite.exe                    # 编译产物（25 KB）
-└── cliplite_history.json           # 运行后自动生成的用户数据
-```
-
----
-
-## 三层架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    交互层 (Presentation)                │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  HistoryForm.cs                                  │  │
-│  │  - 无边框弹出面板 (阴影 + 置顶)                   │  │
-│  │  - 搜索框 (实时过滤)                              │  │
-│  │  - 自绘条目列表 (预览 + 时间 + 置顶标记)           │  │
-│  │  - 键盘/鼠标事件处理                              │  │
-│  └──────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────────┤
-│                    业务逻辑层 (Business Logic)          │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Services.cs - ClipboardMonitor                  │  │
-│  │  - Windows 消息窗口 (NativeWindow)               │  │
-│  │  - AddClipboardFormatListener 监听               │  │
-│  │  - 消息分发 (ClipboardChanged + WindowMessage)    │  │
-│  │  - SHA256 Hash 去重                               │  │
-│  └──────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Services.cs - HotkeyManager                    │  │
-│  │  - RegisterHotKey / UnregisterHotKey            │  │
-│  │  - Ctrl+Shift+V 热键绑定                         │  │
-│  │  - WM_HOTKEY 消息处理                            │  │
-│  └──────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Program.cs - ClipLiteContext                    │  │
-│  │  - 应用生命周期管理                               │  │
-│  │  - 事件编排 (监视器 → 热键 → 面板 → 存储)         │  │
-│  │  - 托盘图标与右键菜单                             │  │
-│  │  - 单例保护 (Mutex)                              │  │
-│  └──────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────────┤
-│                    数据持久层 (Data Persistence)        │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Models.cs - ClipboardEntry                     │  │
-│  │  - 数据模型 (Id / Text / Timestamp / IsPinned)   │  │
-│  │  - PreviewText / TimeDisplay 辅助属性            │  │
-│  └──────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Models.cs - JsonStorage                        │  │
-│  │  - 手动 JSON 序列化 (无外部依赖)                  │  │
-│  │  - 最大容量 500 条自动修剪                       │  │
-│  │  - 读: Deserialize (状态机解析)                  │  │
-│  │  - 写: Serialize (StringBuilder)                │  │
-│  └──────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## 技术栈
-
-| 项目 | 选型 |
-| ---- | ---- |
-| 语言 | C# 5.0 |
-| 框架 | .NET Framework 4.8 (Windows 自带) |
-| UI | WinForms (System.Windows.Forms) |
-| 图形 | System.Drawing |
-| 编译器 | csc.exe (系统自带) |
-| 存储 | JSON 文件 |
-| 构建 | 单批处理命令 `build.bat` |
-
----
+- 全功能抓取 / 纯文本抓取模式。
+- 开机自启、复制提示、文件详情和排除程序统一配置。
+- JSONL 索引、独立资产目录、滚动备份与孤立文件清理。
+- 默认最多 500 条、50 MB 总存储，可在设置页查看占用和记录数。
 
 ## 快速开始
 
-### 方法一：直接运行
+### 直接使用
 
-```
-ClipLite\ClipLite.exe
-```
+1. 从 [Releases](https://github.com/2039108952x-lab/ClipLite/releases) 下载 `ClipLite.exe`。
+2. 运行后 ClipLite 会驻留在系统托盘。
+3. 按 `Ctrl + Shift + V` 打开历史面板，或通过托盘菜单打开。
 
-启动后托盘出现蓝色图标，按 `Ctrl + Shift + V` 即可调出历史面板。
+> 现有用户的快捷键以本地设置为准；可在设置页重新录入或禁用。
 
-### 方法二：自行编译
+### 从源码构建
 
 ```bat
+git clone https://github.com/2039108952x-lab/ClipLite.git
 cd ClipLite
 build.bat
 ```
 
-编译产物为 `ClipLite.exe`（25 KB）。
+需要 Windows 10/11 和 .NET Framework 4.8。构建脚本直接调用系统 `csc.exe`，不需要 NuGet 包或 Visual Studio 工程。
 
-**环境要求：** Windows 10/11（自带 .NET Framework 4.8），无需任何额外安装。
+## 快捷操作
 
----
+| 操作 | 方式 |
+| --- | --- |
+| 打开 / 隐藏历史 | 默认 `Ctrl + Shift + V`，可在设置中修改 |
+| 搜索 | 打开面板后直接输入 |
+| 选择记录 | `↑` / `↓` |
+| 复制并关闭 | `Enter` 或点击条目 |
+| 删除记录 | `Delete` 或悬停删除按钮 |
+| 关闭面板 | `Esc` |
 
-## 常见问题
+## 数据与隐私
 
-**Q：如何修改热键？**  
-在 `Services.cs` 的 `HotkeyManager` 类中修改 `VK_V` 和 `MOD_CONTROL | MOD_SHIFT` 常量，重新编译即可。
+所有内容均保存在 `ClipLite.exe` 同级目录：
 
-**Q：最多能存多少条历史？**  
-默认 500 条。在 `Models.cs` 中修改 `MaxEntries` 常量可调整上限。
+```text
+cliplite_settings.json
+cliplite_data/
+├── index.jsonl
+├── index.jsonl.bak1 ... bak3
+└── assets/
+```
 
-**Q：JSON 历史文件在哪？**  
-与 `ClipLite.exe` 同目录，文件名 `cliplite_history.json`。
-删除该文件即可清空历史记录（下次启动自动重建）。
+ClipLite 不需要账号，不上传剪贴板内容，也不依赖远程服务。如果密码管理器或其他敏感程序不应被记录，请将其可执行文件名加入“排除程序”。
 
-**Q：如何开机自启？**  
-创建 `ClipLite.exe` 的快捷方式，放入 `shell:startup` 启动文件夹。
+## 项目结构
 
----
+```text
+Program.cs             应用生命周期与事件编排
+Services.cs            剪贴板监听与事务式快捷键注册
+Models.cs              记录模型、JSONL 存储与资产管理
+HistoryForm.cs         剪贴板历史面板
+SettingsForm.cs        设置窗口
+CopyFeedback.cs        非激活式复制反馈胶囊
+UiTheme.cs             颜色、字体、圆角和 DWM 效果
+build.bat              单文件构建脚本
+```
 
 ## License
 
 MIT
-

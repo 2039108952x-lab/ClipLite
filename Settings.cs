@@ -29,12 +29,36 @@ namespace ClipLite
         public ClipLiteSettings()
         {
             ExcludedApps = new List<string>();
+            ShowFileDetails = false;
+            AutoStart = true;
+            CaptureMode = "full";
+            HotkeyModifiers = HotkeyGesture.Control | HotkeyGesture.Shift;
+            HotkeyKey = 0x56; // V
             EnableEncryption = false;
             ShowCopyToast = true;
             EncryptionKey = "";
             MaxEntries = 500;
             MaxTotalSize = 50L * 1024 * 1024;
             Version = 2;
+        }
+
+        public ClipLiteSettings Clone()
+        {
+            return new ClipLiteSettings
+            {
+                ExcludedApps = new List<string>(ExcludedApps ?? new List<string>()),
+                ShowFileDetails = ShowFileDetails,
+                AutoStart = AutoStart,
+                CaptureMode = CaptureMode,
+                HotkeyModifiers = HotkeyModifiers,
+                HotkeyKey = HotkeyKey,
+                EnableEncryption = EnableEncryption,
+                ShowCopyToast = ShowCopyToast,
+                EncryptionKey = EncryptionKey,
+                MaxEntries = MaxEntries,
+                MaxTotalSize = MaxTotalSize,
+                Version = Version
+            };
         }
 
         public static ClipLiteSettings Load()
@@ -54,12 +78,24 @@ namespace ClipLite
 
         public void Save()
         {
+            string ignored;
+            TrySave(out ignored);
+        }
+
+        public bool TrySave(out string error)
+        {
+            error = null;
             try
             {
                 string json = Serialize();
                 File.WriteAllText(_settingsPath, json, Encoding.UTF8);
+                return true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                error = "保存设置失败：" + ex.Message;
+                return false;
+            }
         }
 
         public string EnsureEncryptionKey()
@@ -72,7 +108,6 @@ namespace ClipLite
                     aes.GenerateKey();
                     EncryptionKey = Convert.ToBase64String(aes.Key);
                 }
-                Save();
             }
             return EncryptionKey;
         }
@@ -86,6 +121,7 @@ namespace ClipLite
             sb.Append(",\"maxTotalSize\":").Append(MaxTotalSize);
             
             sb.Append(",\"showFileDetails\":").Append(ShowFileDetails ? "true" : "false");
+            sb.Append(",\"autoStart\":").Append(AutoStart ? "true" : "false");
             sb.Append(",\"captureMode\":\"").Append(CaptureMode ?? "full").Append("\"");
             sb.Append(",\"hotkeyModifiers\":").Append(HotkeyModifiers);
             sb.Append(",\"hotkeyKey\":").Append(HotkeyKey);
@@ -113,11 +149,18 @@ namespace ClipLite
             if (s.MaxTotalSize <= 0) s.MaxTotalSize = 50L * 1024 * 1024;
 
             s.Version = (int)SafeStorage.ExtractLong(json, "version");
-            s.ShowFileDetails = SafeStorage.ExtractRaw(json, "showFileDetails") != "false";
-            s.AutoStart = SafeStorage.ExtractRaw(json, "autoStart") != "false";
-            s.CaptureMode = SafeStorage.ExtractStr(json, "captureMode") ?? "full";
-            s.HotkeyModifiers = (uint)SafeStorage.ExtractLong(json, "hotkeyModifiers");
-            s.HotkeyKey = (uint)SafeStorage.ExtractLong(json, "hotkeyKey");
+            if (s.Version <= 0) s.Version = 2;
+
+            string showFileDetails = SafeStorage.ExtractRaw(json, "showFileDetails");
+            if (showFileDetails != null) s.ShowFileDetails = showFileDetails == "true";
+            string autoStart = SafeStorage.ExtractRaw(json, "autoStart");
+            if (autoStart != null) s.AutoStart = autoStart == "true";
+
+            s.CaptureMode = SafeStorage.ExtractStr(json, "captureMode") ?? s.CaptureMode;
+            if (SafeStorage.ExtractRaw(json, "hotkeyModifiers") != null)
+                s.HotkeyModifiers = (uint)SafeStorage.ExtractLong(json, "hotkeyModifiers");
+            if (SafeStorage.ExtractRaw(json, "hotkeyKey") != null)
+                s.HotkeyKey = (uint)SafeStorage.ExtractLong(json, "hotkeyKey");
             s.EnableEncryption = SafeStorage.ExtractRaw(json, "enableEncryption") == "true";
             s.ShowCopyToast = SafeStorage.ExtractRaw(json, "showCopyToast") != "false";
             s.EncryptionKey = SafeStorage.ExtractStr(json, "encryptionKey") ?? "";

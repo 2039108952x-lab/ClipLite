@@ -45,8 +45,7 @@ namespace ClipLite
         /// </summary>
         public event Func<Message, bool> HotkeyMessageReceived;
 
-        private HotkeyManager _hotkeyRef; // weak reference for handle recreation
-        private IntPtr _handleAtRegister;
+        private HotkeyManager _hotkeyRef;
 
         private HashSet<string> _knownHashes = new HashSet<string>();
         private bool _initialized;
@@ -77,7 +76,6 @@ namespace ClipLite
         public void SetHotkeyManager(HotkeyManager hm)
         {
             _hotkeyRef = hm;
-            _handleAtRegister = Handle;
         }
 
         public IntPtr WindowHandle { get { return _initialized ? Handle : IntPtr.Zero; } }
@@ -126,37 +124,68 @@ namespace ClipLite
 
         // ── Self-write helpers ──
 
-        public void CopyText(string text)
+        public bool TryCopyText(string text, out string error)
         {
-            lock (_writeLock)
+            return TryWriteClipboard(() =>
             {
-                _lastSelfWriteTime = DateTime.Now;
-                try { Clipboard.SetText(text); } catch { }
-            }
+                if (string.IsNullOrEmpty(text)) Clipboard.Clear();
+                else Clipboard.SetText(text);
+            }, out error);
         }
 
-        public void CopyImage(Image image)
+        public bool TryCopyImage(Image image, out string error)
         {
-            lock (_writeLock)
+            if (image == null)
             {
-                _lastSelfWriteTime = DateTime.Now;
-                try { Clipboard.SetImage(image); } catch { }
+                error = "图片数据不可用。";
+                return false;
             }
+            return TryWriteClipboard(() => Clipboard.SetImage(image), out error);
         }
 
-        public void CopyFilePaths(string[] paths)
+        public bool TryCopyFilePaths(string[] paths, out string error)
         {
-            lock (_writeLock)
+            if (paths == null || paths.Length == 0)
             {
-                _lastSelfWriteTime = DateTime.Now;
+                error = "文件路径不可用。";
+                return false;
+            }
+            return TryWriteClipboard(() =>
+            {
+                var collection = new System.Collections.Specialized.StringCollection();
+                collection.AddRange(paths);
+                Clipboard.SetFileDropList(collection);
+            }, out error);
+        }
+
+        private bool TryWriteClipboard(Action writeAction, out string error)
+        {
+            error = null;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
                 try
                 {
-                    var col = new System.Collections.Specialized.StringCollection();
-                    col.AddRange(paths);
-                    Clipboard.SetFileDropList(col);
+                    writeAction();
+                    lock (_writeLock)
+                        _lastSelfWriteTime = DateTime.Now;
+                    return true;
                 }
-                catch { }
+                catch (ExternalException)
+                {
+                    if (attempt < 2)
+                    {
+                        System.Threading.Thread.Sleep(15);
+                        continue;
+                    }
+                    error = "剪贴板正被其他程序占用，请重试。";
+                }
+                catch (Exception ex)
+                {
+                    error = "写入剪贴板失败：" + ex.Message;
+                }
+                break;
             }
+            return false;
         }
 
         protected override void WndProc(ref Message m)
@@ -182,17 +211,8 @@ namespace ClipLite
         protected override void OnHandleChange()
         {
             base.OnHandleChange();
-            // Re-register hotkey if the handle was recreated
             if (_hotkeyRef != null && _initialized)
-            {
-                IntPtr oldHandle = _handleAtRegister;
-                if (oldHandle != IntPtr.Zero && oldHandle != Handle)
-                {
-                    _hotkeyRef.Unregister(oldHandle);
-                    _hotkeyRef.Register(Handle);
-                    _handleAtRegister = Handle;
-                }
-            }
+                _hotkeyRef.RebindWindow(Handle);
         }
 
 
@@ -414,11 +434,7 @@ namespace ClipLite
         {
             try
             {
-                if (_hotkeyRef != null && _handleAtRegister != IntPtr.Zero)
-                {
-                    _hotkeyRef.Unregister(_handleAtRegister);
-                    _hotkeyRef = null;
-                }
+                _hotkeyRef = null;
                 _debounceTimer.Dispose();
                 RemoveClipboardFormatListener(Handle);
                 _initialized = false;
@@ -428,60 +444,136 @@ namespace ClipLite
         }
     }
 
-    // ── HotkeyManager (unchanged) ──
-
-    // ── HotkeyManager ──
-
-    public class HotkeyManager
+    public class HotkeyManager : IDisposable
     {
         private const int WM_HOTKEY = 0x0312;
-        private int _hotkeyId;
+        private const int PrimaryHotkeyId = 0xB001;
+        private const int ProbeHotkeyId = 0xB002;
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-        [DllImport("kernel32.dll")]
-        private static extern ushort GlobalAddAtom(string lpString);
+        private IntPtr _windowHandle;
+        private bool _registered;
 
-        private const uint MOD_CONTROL = 0x0002;
-        private const uint MOD_SHIFT = 0x0004;
-        private const uint MOD_NOREPEAT = 0x4000;
-        public uint Modifiers { get; set; }
-        public uint KeyCode { get; set; }
-
-        public HotkeyManager()
-        {
-            // Generate a unique atom-based hotkey ID to avoid conflicts
-            _hotkeyId = GlobalAddAtom("ClipLiteHotkeyKey");
-            if (_hotkeyId == 0) _hotkeyId = 9001; // fallback
-        }
+        public uint Modifiers { get; private set; }
+        public uint KeyCode { get; private set; }
+        public bool IsRegistered { get { return _registered; } }
+        public bool IsEnabled { get { return !HotkeyGesture.IsDisabled(Modifiers, KeyCode); } }
 
         public event Action<string> HotkeyPressed;
+        public event Action<string> RegistrationFailed;
 
-        public bool Register(IntPtr hWnd)
+        public bool TryConfigure(IntPtr hWnd, uint modifiers, uint keyCode, out string error)
         {
-            if (hWnd == IntPtr.Zero) return false;
-            if (Modifiers == 0 || KeyCode == 0)
+            error = null;
+            if (hWnd == IntPtr.Zero)
             {
-                Unregister(hWnd);
-                return true; // "disabled" is valid
+                error = "快捷键窗口尚未准备好，请重试。";
+                return false;
             }
-            // MOD_NOREPEAT prevents repeated hotkey when user holds the keys
-            return RegisterHotKey(hWnd, _hotkeyId, Modifiers | MOD_NOREPEAT, KeyCode);
+            if (!HotkeyGesture.TryValidate(modifiers, keyCode, out error)) return false;
+
+            if (_windowHandle != IntPtr.Zero && _windowHandle != hWnd)
+            {
+                UnregisterCurrent();
+                _windowHandle = hWnd;
+            }
+            else if (_windowHandle == IntPtr.Zero)
+            {
+                _windowHandle = hWnd;
+            }
+
+            bool unchanged = Modifiers == modifiers && KeyCode == keyCode;
+            if (unchanged)
+            {
+                if (HotkeyGesture.IsDisabled(modifiers, keyCode)) return true;
+                if (_registered) return true;
+                return RegisterCurrent(out error);
+            }
+
+            if (HotkeyGesture.IsDisabled(modifiers, keyCode))
+            {
+                UnregisterCurrent();
+                Modifiers = 0;
+                KeyCode = 0;
+                return true;
+            }
+
+            uint nativeModifiers = modifiers | HotkeyGesture.NoRepeat;
+            if (!RegisterHotKey(hWnd, ProbeHotkeyId, nativeModifiers, keyCode))
+            {
+                error = "该快捷键已被其他程序占用，请换一个组合。";
+                return false;
+            }
+            UnregisterHotKey(hWnd, ProbeHotkeyId);
+
+            uint previousModifiers = Modifiers;
+            uint previousKeyCode = KeyCode;
+            bool previousEnabled = IsEnabled;
+            UnregisterCurrent();
+
+            if (!RegisterHotKey(hWnd, PrimaryHotkeyId, nativeModifiers, keyCode))
+            {
+                Modifiers = previousModifiers;
+                KeyCode = previousKeyCode;
+                if (previousEnabled) RegisterCurrent(out error);
+                error = "应用新快捷键失败，原快捷键已恢复。";
+                return false;
+            }
+
+            Modifiers = modifiers;
+            KeyCode = keyCode;
+            _registered = true;
+            return true;
         }
 
-        public void Unregister(IntPtr hWnd)
+        public bool RebindWindow(IntPtr newHandle)
         {
-            if (hWnd != IntPtr.Zero)
-                UnregisterHotKey(hWnd, _hotkeyId);
+            if (newHandle == IntPtr.Zero) return false;
+            if (_windowHandle == newHandle) return true;
+
+            UnregisterCurrent();
+            _windowHandle = newHandle;
+            if (!IsEnabled) return true;
+
+            string error;
+            bool ok = RegisterCurrent(out error);
+            if (!ok && RegistrationFailed != null)
+                RegistrationFailed(error);
+            return ok;
+        }
+
+        private bool RegisterCurrent(out string error)
+        {
+            error = null;
+            if (!IsEnabled) return true;
+            if (_windowHandle == IntPtr.Zero)
+            {
+                error = "快捷键窗口不可用。";
+                return false;
+            }
+
+            _registered = RegisterHotKey(_windowHandle, PrimaryHotkeyId,
+                Modifiers | HotkeyGesture.NoRepeat, KeyCode);
+            if (!_registered)
+                error = "快捷键注册失败，可能已被其他程序占用。";
+            return _registered;
+        }
+
+        private void UnregisterCurrent()
+        {
+            if (_registered && _windowHandle != IntPtr.Zero)
+                UnregisterHotKey(_windowHandle, PrimaryHotkeyId);
+            _registered = false;
         }
 
         public bool HandleMessage(ref Message m)
         {
-            if (m.Msg == WM_HOTKEY && (int)m.WParam == _hotkeyId)
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == PrimaryHotkeyId)
             {
                 if (HotkeyPressed != null)
                     HotkeyPressed("hotkey");
@@ -489,6 +581,12 @@ namespace ClipLite
                 return true;
             }
             return false;
+        }
+
+        public void Dispose()
+        {
+            UnregisterCurrent();
+            _windowHandle = IntPtr.Zero;
         }
     }
 }

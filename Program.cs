@@ -51,22 +51,12 @@ namespace ClipLite
         private ThumbnailCache _thumbCache;
         private bool _paused;
         private Icon _appIcon;
-        private Icon _successIcon;
+        private CopyFeedbackController _copyFeedback;
+        private string _hotkeyStatusError;
 
         public ClipLiteContext()
         {
             CreateAppIcon();
-
-            // ── Startup marker (EXE dir + desktop) ──
-            try
-            {
-                string dir = System.IO.Path.GetDirectoryName(typeof(Program).Assembly.Location);
-                string msg = "ClipLite 已启动: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "ClipLite_已启动.txt"), msg);
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                System.IO.File.WriteAllText(System.IO.Path.Combine(desktop, "ClipLite_已启动.txt"), msg);
-            }
-            catch { }
 
             // ── Initialize storage ──
             _storage = new SafeStorage();
@@ -109,33 +99,32 @@ namespace ClipLite
             _clipboardMonitor.ClipboardDataAvailable += OnClipboardData;
 
             // ── Hotkey ──
+            string hotkeyError;
             _hotkeyManager = new HotkeyManager();
             _clipboardMonitor.HotkeyMessageReceived += OnWindowMessage;
             _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
+            _hotkeyManager.RegistrationFailed += OnHotkeyRegistrationFailed;
             _clipboardMonitor.EnsureHandle();
             _clipboardMonitor.SetHotkeyManager(_hotkeyManager);
-            _hotkeyManager.Modifiers = _settings.HotkeyModifiers;
-            _hotkeyManager.KeyCode = _settings.HotkeyKey;
-            bool hotkeyOk = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
-            if (!hotkeyOk && (_settings.HotkeyModifiers != 0 || _settings.HotkeyKey != 0))
-            {
-                _trayIcon.Text = "ClipLite (快捷键注册失败)";
-            }
+            bool hotkeyOk = _hotkeyManager.TryConfigure(_clipboardMonitor.WindowHandle,
+                _settings.HotkeyModifiers, _settings.HotkeyKey, out hotkeyError);
 
             // ── History form ──
             _historyForm = new HistoryForm(_storage, _thumbCache);
             _historyForm.SetEntries(savedEntries);
             _historyForm.ItemSelected += OnItemSelected;
             _historyForm.EntryCopied += OnEntryCopied;
-            ToastForm.ToastEnabled = _settings.ShowCopyToast;
+            _historyForm.SettingsRequested += ShowSettings;
+            _copyFeedback = new CopyFeedbackController(_settings.ShowCopyToast);
 
             // ── Tray icon ──
             _trayIcon = new NotifyIcon
             {
                 Icon = _appIcon,
-                Text = "ClipLite",
+                Text = hotkeyOk ? "ClipLite" : "ClipLite (快捷键注册失败)",
                 Visible = true
             };
+            _hotkeyStatusError = hotkeyOk ? null : "快捷键注册失败";
 
             var trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("显示历史", null, (s, e) => ShowHistory());
@@ -190,43 +179,17 @@ namespace ClipLite
                 _appIcon = Icon.FromHandle(hIcon);
             }
 
-            // ── Success icon (green checkmark) ──
-            using (var bmp = new Bitmap(16, 16))
-            {
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.Clear(Color.Transparent);
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-
-                    using (var brush = new SolidBrush(Color.FromArgb(0, 180, 80)))
-                    {
-                        g.FillEllipse(brush, 1, 1, 14, 14);
-                    }
-
-                    using (var pen = new Pen(Color.White, 2.5f))
-                    {
-                        g.DrawLine(pen, 4, 8, 7, 12);
-                        g.DrawLine(pen, 7, 12, 13, 4);
-                    }
-                }
-
-                var hSuccess = bmp.GetHicon();
-                _successIcon = Icon.FromHandle(hSuccess);
-            }
         }
 
         // ── Multi-format clipboard handler ──
 
         private void OnClipboardData(ClipboardFormatFlags formats, string text, Image image, string[] files, string rtf, string html, byte[] audio)
         {
-            // Visual: tray icon → green checkmark
-            FlashIcon();
-            // Desktop file notification
-            ShowToast("✔ 已捕获");
-            // Bottom status in history panel
-            try { _historyForm.ShowStatus("✔ 已捕获"); } catch { }
-
             if (_paused) return;
+
+            // Reaching this handler means Windows exposed the new clipboard data
+            // successfully. Show feedback even when the content is a duplicate.
+            ShowCopySuccess(Screen.FromPoint(Cursor.Position));
 
             // Determine primary type
             string primaryType = "text";
@@ -383,42 +346,53 @@ namespace ClipLite
 
         private void OnEntryCopied(ClipboardEntry entry)
         {
+            string error;
+            bool copied = TryCopyEntry(entry, out error);
+            if (copied)
+                ShowCopySuccess();
+            else
+                ShowCopyFailure(error);
+        }
+
+        private bool TryCopyEntry(ClipboardEntry entry, out string error)
+        {
+            error = null;
+            if (entry == null)
+            {
+                error = "记录不存在。";
+                return false;
+            }
+
             switch (entry.Type)
             {
                 case "text":
                 case "richtext":
                 case "html":
-                    _clipboardMonitor.CopyText(entry.Text ?? "");
-                    break;
+                    return _clipboardMonitor.TryCopyText(entry.Text ?? "", out error);
 
                 case "image":
-                    if (!string.IsNullOrEmpty(entry.ImageFile))
+                    if (string.IsNullOrEmpty(entry.ImageFile))
                     {
-                        byte[] imgData = _storage.LoadAsset(entry.ImageFile);
-                        if (imgData != null)
-                        {
-                            using (var ms = new MemoryStream(imgData))
-                            using (var img = Image.FromStream(ms))
-                            {
-                                _clipboardMonitor.CopyImage(img);
-                            }
-                        }
+                        error = "图片文件不存在。";
+                        return false;
                     }
-                    break;
+                    byte[] imageData = _storage.LoadAsset(entry.ImageFile);
+                    if (imageData == null)
+                    {
+                        error = "图片数据读取失败。";
+                        return false;
+                    }
+                    using (var stream = new MemoryStream(imageData))
+                    using (var image = Image.FromStream(stream))
+                        return _clipboardMonitor.TryCopyImage(image, out error);
 
                 case "filelist":
-                    var paths = entry.GetFilePaths();
-                    if (paths.Length > 0)
-                        _clipboardMonitor.CopyFilePaths(paths);
-                    break;
-            }
+                    return _clipboardMonitor.TryCopyFilePaths(entry.GetFilePaths(), out error);
 
-            // Visual: tray icon → green checkmark
-            FlashIcon();
-            // Desktop file notification
-            ShowToast("✔ 已复制");
-            // Bottom status in history panel
-            try { _historyForm.ShowStatus("✔ 已复制"); } catch { }
+                default:
+                    error = "暂不支持复制该类型。";
+                    return false;
+            }
         }
 
         // ── Startup clipboard capture ──
@@ -451,67 +425,29 @@ namespace ClipLite
 
         private void OnHotkeyPressed(string source) { ShowHistory(); }
 
-        /// <summary>
-        /// Swap tray icon to green checkmark for 1.5s, then revert to blue clipboard.
-        /// Visible in system tray without hovering — unlike tooltip text changes.
-        /// </summary>
-        private void FlashIcon()
+        private void ShowCopySuccess()
         {
-            try
-            {
-                _trayIcon.Icon = _successIcon;
-                var t = new Timer { Interval = 1500 };
-                t.Tick += (s, e) =>
-                {
-                    t.Stop();
-                    t.Dispose();
-                    try { _trayIcon.Icon = _appIcon; } catch { }
-                };
-                t.Start();
-            }
-            catch { }
+            ShowCopySuccess(GetFeedbackScreen());
         }
 
-        /// <summary>
-        /// Show a small auto-dismissing toast at screen bottom-center.
-        /// </summary>
-        private void ShowToast(string text)
+        private void ShowCopySuccess(Screen screen)
         {
-            try
-            {
-                var f = new Form();
-                f.FormBorderStyle = FormBorderStyle.None;
-                f.ShowInTaskbar = false;
-                f.TopMost = true;
-                f.StartPosition = FormStartPosition.Manual;
-                f.BackColor = Color.FromArgb(45, 45, 45);
-                f.Width = 280;
-                f.Height = 50;
+            if (_copyFeedback != null)
+                _copyFeedback.ShowSuccess(screen);
+        }
 
-                int sw = Screen.PrimaryScreen.WorkingArea.Width;
-                int sh = Screen.PrimaryScreen.WorkingArea.Height;
-                f.Location = new Point((sw - f.Width) / 2, sh - f.Height - 60);
+        private void ShowCopyFailure(string error)
+        {
+            string detail = string.IsNullOrEmpty(error) ? "未知错误" : error;
+            if (_copyFeedback != null)
+                _copyFeedback.ShowFailure("复制失败：" + detail, GetFeedbackScreen());
+        }
 
-                var lbl = new Label
-                {
-                    Text = text,
-                    ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 12, FontStyle.Regular),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Dock = DockStyle.Fill,
-                    BackColor = Color.Transparent
-                };
-                lbl.Click += (s, e) => f.Close();
-                f.Controls.Add(lbl);
-                f.Click += (s, e) => f.Close();
-
-                var t = new Timer { Interval = 2000 };
-                t.Tick += (s, e) => { t.Stop(); t.Dispose(); f.Close(); };
-                t.Start();
-
-                f.Show();
-            }
-            catch { }
+        private Screen GetFeedbackScreen()
+        {
+            if (_historyForm != null && !_historyForm.IsDisposed)
+                return Screen.FromRectangle(_historyForm.Bounds);
+            return Screen.FromPoint(Cursor.Position);
         }
 
         private void ShowHistory()
@@ -548,25 +484,28 @@ namespace ClipLite
             _paused = !_paused;
             if (_paused)
             {
-                _trayIcon.Text = "ClipLite (Paused)";
                 _trayIcon.ContextMenuStrip.Items[2].Text = "恢复监听";
             }
             else
             {
-                _trayIcon.Text = "ClipLite";
                 _trayIcon.ContextMenuStrip.Items[2].Text = "暂停监听";
             }
+            RefreshTrayStatus();
         }
 
         private void ClearHistory()
         {
             if (MessageBox.Show("Clear all clipboard history?", "ClipLite",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-            {
-                _historyForm.ClearEntries();
-                _clipboardMonitor.SetKnownHashes(new HashSet<string>());
-                SaveHistory();
-            }
+                ClearHistoryData();
+        }
+
+        private void ClearHistoryData()
+        {
+            _historyForm.ClearEntries();
+            _clipboardMonitor.SetKnownHashes(new HashSet<string>());
+            SaveHistory();
+            _storage.CleanupOrphans(new List<ClipboardEntry>());
         }
 
         private void SaveHistory()
@@ -577,38 +516,79 @@ namespace ClipLite
 
         private void ShowSettings()
         {
-            using (var form = new SettingsForm(_settings, OnSettingsChanged, _storage))
-            {
+            using (var form = new SettingsForm(_settings, ApplySettings,
+                _storage, ClearHistoryData))
                 form.ShowDialog();
-                if (form.Tag as string == "clear")
+        }
+
+        private string ApplySettings(ClipLiteSettings candidate)
+        {
+            if (candidate == null) return "设置内容无效。";
+
+            ClipLiteSettings previous = _settings;
+            string hotkeyError;
+            if (!_hotkeyManager.TryConfigure(_clipboardMonitor.WindowHandle,
+                candidate.HotkeyModifiers, candidate.HotkeyKey, out hotkeyError))
+                return hotkeyError;
+
+            try
+            {
+                bool autoStartChanged = previous.AutoStart != candidate.AutoStart;
+                if (candidate.EnableEncryption) candidate.EnsureEncryptionKey();
+                else candidate.EncryptionKey = "";
+
+                string saveError;
+                if (!candidate.TrySave(out saveError))
                 {
-                    _historyForm.ClearEntries();
-                    _clipboardMonitor.SetKnownHashes(new HashSet<string>());
-                    SaveHistory();
+                    RestoreHotkey(previous);
+                    return saveError;
                 }
+
+                _settings = candidate;
+                if (_copyFeedback != null)
+                    _copyFeedback.SetSuccessEnabled(candidate.ShowCopyToast);
+                _clipboardMonitor.ExcludedApps = candidate.ExcludedApps;
+                _clipboardMonitor.CaptureMode = candidate.CaptureMode;
+                _storage.EncryptionKey = candidate.EnableEncryption ? candidate.EncryptionKey : "";
+                ClipboardEntry.ShowFileDetails = candidate.ShowFileDetails;
+                if (autoStartChanged) SetAutoStart(candidate.AutoStart);
+                UpdateTrayStatus(null);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                RestoreHotkey(previous);
+                return "应用设置失败：" + ex.Message;
             }
         }
 
-        private void OnSettingsChanged(ClipLiteSettings newSettings)
+        private void RestoreHotkey(ClipLiteSettings settings)
         {
-            _settings = newSettings;
-            _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
-            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
-            ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
-            ToastForm.ToastEnabled = _settings.ShowCopyToast;
-            if (_hotkeyManager.Modifiers != _settings.HotkeyModifiers || _hotkeyManager.KeyCode != _settings.HotkeyKey)
-            {
-                _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
-                _hotkeyManager.Modifiers = _settings.HotkeyModifiers;
-                _hotkeyManager.KeyCode = _settings.HotkeyKey;
-                bool ok = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
-                if (!ok && (_settings.HotkeyModifiers != 0 || _settings.HotkeyKey != 0))
-                    _trayIcon.Text = "ClipLite (快捷键注册失败)";
-                else
-                    _trayIcon.Text = "ClipLite";
-            }
-            _clipboardMonitor.CaptureMode = _settings.CaptureMode;
-            SetAutoStart(_settings.AutoStart);
+            string ignored;
+            _hotkeyManager.TryConfigure(_clipboardMonitor.WindowHandle,
+                settings.HotkeyModifiers, settings.HotkeyKey, out ignored);
+        }
+
+        private void OnHotkeyRegistrationFailed(string error)
+        {
+            UpdateTrayStatus("快捷键注册失败");
+            if (_copyFeedback != null)
+                _copyFeedback.ShowFailure(error, GetFeedbackScreen());
+        }
+
+        private void UpdateTrayStatus(string error)
+        {
+            _hotkeyStatusError = error;
+            RefreshTrayStatus();
+        }
+
+        private void RefreshTrayStatus()
+        {
+            if (_trayIcon == null) return;
+            string text = _paused ? "ClipLite (Paused)" : "ClipLite";
+            if (!string.IsNullOrEmpty(_hotkeyStatusError))
+                text = "ClipLite (" + _hotkeyStatusError + ")";
+            _trayIcon.Text = text.Length > 63 ? text.Substring(0, 63) : text;
         }
 
         private void SetAutoStart(bool enabled)
@@ -635,10 +615,12 @@ namespace ClipLite
         {
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
-            _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
+            _hotkeyManager.Dispose();
             _clipboardMonitor.Dispose();
             _thumbCache.Dispose();
             _historyForm.Dispose();
+            if (_copyFeedback != null)
+                _copyFeedback.Dispose();
             if (_appIcon != null)
                 _appIcon.Dispose();
             Application.Exit();
@@ -648,14 +630,16 @@ namespace ClipLite
         {
             try
             {
-                if (_hotkeyManager != null && _clipboardMonitor != null)
-                    _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
+                if (_hotkeyManager != null)
+                    _hotkeyManager.Dispose();
                 if (_clipboardMonitor != null)
                     _clipboardMonitor.Dispose();
                 if (_thumbCache != null)
                     _thumbCache.Dispose();
                 if (_historyForm != null && !_historyForm.IsDisposed)
                     _historyForm.Dispose();
+                if (_copyFeedback != null)
+                    _copyFeedback.Dispose();
                 if (_trayIcon != null)
                 {
                     _trayIcon.Visible = false;

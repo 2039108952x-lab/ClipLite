@@ -59,6 +59,7 @@ bld/
 cliplite_history.json
 cliplite_data/
 cliplite_settings.json
+ClipLite_已启动.txt
 
 # Build artifacts
 *.exe

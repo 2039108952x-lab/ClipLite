@@ -166,6 +166,34 @@ Enable **Start with Windows** in Settings; no manual shortcut needed.
 
 ---
 
+## Changelog
+
+### v1.1.0 — 2026-11-03
+
+**Added**
+
+- In-app copy toast (`ToastForm`): rounded self-drawn overlay with a success icon that fades in and out, never stealing focus — no longer relies on tray balloons that Windows notification settings can silence
+- Toast position switchable: follow the copied content (near the cursor) or sit centered at the bottom of the screen; the change applies immediately and is saved automatically
+- Startup notice: shows "ClipLite is running" once ready, with the global hotkey as subtitle, plus a tray hint when hotkey registration fails
+- History panel rebuild: image thumbnails, single-click copy, hover copy/delete, right-click pin/delete, type filter, search hit highlighting, empty state and full keyboard control
+- Settings rebuild: global hotkey capture, toast toggle and position, grouped cards, storage usage, and hotkey re-registration at runtime
+- Unified `UiTheme`: rounded panels and buttons, focus outlines, hover states
+- The history window now stays open after copying, and can be moved by dragging its title bar
+
+**Fixed**
+
+- Lost encrypted history: `ENCR` header is detected and decrypted on load, with the key injected before reading
+- Decryption failure now enters a protective mode that blocks overwrites and skips asset cleanup
+- Broken auto-start: `autoStart` is rewritten into `settings.json`, old configs without the field keep the default
+- Backup rotation error: extracted into `RollBackups`, fixing a missing-brace bug in the conditional branch
+- Save fingerprint now includes the encryption state, so disabling encryption rewrites plaintext immediately
+- Copy toast closing the history window: short suppression around the toast, while deliberate focus changes still hide it as before
+- Plain `Ctrl+C` and repeated copies not showing the toast
+- `Image` leak in the duplicate-image branch
+- Removed dead audio code and a null reference on the search path
+
+---
+
 ## License
 
 MIT

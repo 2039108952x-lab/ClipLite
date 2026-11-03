@@ -240,6 +240,11 @@ namespace ClipLite
             {
                 _historyForm.MoveToTop(hash);
                 SaveHistory();
+                ShowCopyToast(BuildClipboardPreview(primaryType, fallbackText, files, rtf, image));
+                if (image != null)
+                {
+                    try { image.Dispose(); } catch { }
+                }
                 return;
             }
 
@@ -333,6 +338,7 @@ namespace ClipLite
             }
 
             SaveHistory();
+            ShowCopyToast(entry.PreviewText);
         }
 
         private string ExtractRtfText(string rtf)
@@ -386,14 +392,44 @@ namespace ClipLite
                     break;
             }
 
-            if (copied && _settings.ShowCopyToast)
+            if (copied)
+                ShowCopyToast(entry.PreviewText);
+        }
+
+        private string BuildClipboardPreview(string primaryType, string text, string[] files,
+            string rtf, Image image)
+        {
+            string preview = text ?? "";
+
+            if (string.IsNullOrWhiteSpace(preview))
             {
-                string preview = (entry.PreviewText ?? "").Replace("\r", " ").Replace("\n", " ");
-                if (preview.Length > 48) preview = preview.Substring(0, 48) + "…";
-                if (_toast == null || _toast.IsDisposed)
-                    _toast = new ToastForm();
-                _toast.ShowToast(preview);
+                if (primaryType == "image" && image != null)
+                    preview = "[图片] (" + image.Width + "x" + image.Height + ")";
+                else if (primaryType == "filelist" && files != null && files.Length > 0)
+                {
+                    preview = files.Length > 1
+                        ? files.Length + " 个文件 · " + Path.GetFileName(files[0])
+                        : Path.GetFileName(files[0]);
+                }
+                else if (primaryType == "richtext")
+                    preview = ExtractRtfText(rtf);
+                else if (primaryType == "html" && !string.IsNullOrEmpty(text))
+                    preview = text;
+                if (string.IsNullOrEmpty(preview)) preview = "内容已复制";
             }
+
+            return preview;
+        }
+
+        private void ShowCopyToast(string preview)
+        {
+            if (_settings == null || !_settings.ShowCopyToast) return;
+
+            string text = (preview ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            if (text.Length > 48) text = text.Substring(0, 48) + "…";
+            if (_toast == null || _toast.IsDisposed)
+                _toast = new ToastForm();
+            _toast.ShowToast(text);
         }
 
         private void OnEntryRemoved(ClipboardEntry entry)

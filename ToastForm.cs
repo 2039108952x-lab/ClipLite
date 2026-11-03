@@ -12,9 +12,8 @@ namespace ClipLite
     public class ToastForm : Form
     {
         private const int ToastWidth = 320;
-        private const int LifeMs = 1450;
-        private const int FadeInMs = 90;
-        private const int FadeOutMs = 240;
+        private const int LifeMs = 1800;
+        private const int FadeOutMs = 260;
 
         private readonly Timer _timer;
         private readonly Font _titleFont;
@@ -80,7 +79,7 @@ namespace ClipLite
 
             _closing = false;
             _shownAt = DateTime.Now;
-            this.Opacity = 0;
+            this.Opacity = 0.94; // Visible immediately; never start a toast at opacity 0.
             this.Show();
             this.BringToFront();
             _timer.Stop();
@@ -145,11 +144,7 @@ namespace ClipLite
                 return;
             }
 
-            if (elapsed < FadeInMs)
-            {
-                this.Opacity = 0.94 * elapsed / FadeInMs;
-            }
-            else if (elapsed > LifeMs - FadeOutMs)
+            if (elapsed > LifeMs - FadeOutMs)
             {
                 this.Opacity = 0.94 * (LifeMs - elapsed) / FadeOutMs;
             }

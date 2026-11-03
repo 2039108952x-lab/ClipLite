@@ -10,31 +10,30 @@ using System.Windows.Forms;
 namespace ClipLite
 {
     /// <summary>
-    /// Async thumbnail cache with LRU eviction.
-    /// Generates thumbnails on a background thread, returns via callback.
+    /// Async thumbnail cache with LRU eviction. The worker owns the cached bitmaps;
+    /// callers always receive a clone so eviction cannot dispose an image mid-paint.
     /// </summary>
     public class ThumbnailCache : IDisposable
     {
-        private const int MaxCacheCount = 100;
+        private const int MaxCacheCount = 120;
         private const int ThumbnailSize = 64;
 
-        private Dictionary<string, Image> _cache = new Dictionary<string, Image>();
-        private LinkedList<string> _lru = new LinkedList<string>();
-        private Queue<ThumbnailRequest> _pending = new Queue<ThumbnailRequest>();
-        private Thread _worker;
-        private AutoResetEvent _signal = new AutoResetEvent(false);
+        private readonly object _sync = new object();
+        private readonly Dictionary<string, Image> _cache = new Dictionary<string, Image>();
+        private readonly LinkedList<string> _lru = new LinkedList<string>();
+        private readonly Queue<ThumbnailRequest> _pending = new Queue<ThumbnailRequest>();
+        private readonly HashSet<string> _pendingKeys = new HashSet<string>();
+        private readonly Thread _worker;
+        private readonly AutoResetEvent _signal = new AutoResetEvent(false);
         private volatile bool _running = true;
-        private float _dpiScale = 1.0f;
+        private readonly float _dpiScale = 1.0f;
 
         public ThumbnailCache()
         {
-            // Detect system DPI
             try
             {
                 using (var g = Graphics.FromHwnd(IntPtr.Zero))
-                {
                     _dpiScale = g.DpiX / 96.0f;
-                }
             }
             catch { _dpiScale = 1.0f; }
 
@@ -43,83 +42,96 @@ namespace ClipLite
             _worker.Start();
         }
 
-        /// <summary>
-        /// Request async thumbnail generation. Callback is invoked on the UI thread.
-        /// </summary>
-        public void GetThumbnail(string key, SafeStorage storage, Control invoker, Action<string, Image> callback)
+        /// <summary>Request a thumbnail; callback runs on the UI thread with a caller-owned image.</summary>
+        public void GetThumbnail(string key, SafeStorage storage, Control invoker,
+            Action<string, Image> callback)
         {
-            // Check cache
-            Image cached;
-            if (_cache.TryGetValue(key, out cached))
+            if (string.IsNullOrEmpty(key) || storage == null || callback == null) return;
+
+            Image copy = null;
+            lock (_sync)
             {
-                TouchLru(key);
-                if (invoker != null && invoker.IsHandleCreated)
-                    invoker.BeginInvoke(new Action(() => callback(key, cached)));
-                return;
+                Image cached;
+                if (_cache.TryGetValue(key, out cached))
+                {
+                    TouchLruLocked(key);
+                    try { copy = new Bitmap(cached); }
+                    catch { copy = null; }
+                }
+                else if (!_pendingKeys.Contains(key))
+                {
+                    _pendingKeys.Add(key);
+                    _pending.Enqueue(new ThumbnailRequest
+                    {
+                        Key = key,
+                        Storage = storage,
+                        Invoker = invoker,
+                        Callback = callback
+                    });
+                }
             }
 
-            // Enqueue for background generation
-            lock (_pending)
+            if (copy != null)
             {
-                _pending.Enqueue(new ThumbnailRequest
-                {
-                    Key = key,
-                    Storage = storage,
-                    Invoker = invoker,
-                    Callback = callback
-                });
+                Deliver(invoker, key, callback, copy);
+                return;
             }
             _signal.Set();
         }
 
         public bool TryGetFromCache(string key, out Image image)
         {
-            if (_cache.TryGetValue(key, out image))
+            image = null;
+            if (string.IsNullOrEmpty(key)) return false;
+
+            lock (_sync)
             {
-                TouchLru(key);
-                return true;
+                Image cached;
+                if (!_cache.TryGetValue(key, out cached)) return false;
+                TouchLruLocked(key);
+                try
+                {
+                    image = new Bitmap(cached);
+                    return true;
+                }
+                catch
+                {
+                    image = null;
+                    return false;
+                }
             }
-            return false;
         }
 
-        /// <summary>
-        /// Generate a thumbnail synchronously (for initial list rendering).
-        /// </summary>
-        public static Image GenerateThumbnailFromFile(string filePath, int maxSize = 64)
+        public static Image GenerateThumbnailFromFile(string filePath, int maxSize)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
             try
             {
                 using (var img = Image.FromFile(filePath))
-                {
                     return ScaleDown(img, maxSize);
-                }
             }
             catch { return null; }
         }
 
-        public static Image GenerateThumbnailFromBytes(byte[] data, int maxSize = 64)
+        public static Image GenerateThumbnailFromBytes(byte[] data, int maxSize)
         {
             if (data == null) return null;
             try
             {
                 using (var ms = new MemoryStream(data))
                 using (var img = Image.FromStream(ms))
-                {
                     return ScaleDown(img, maxSize);
-                }
             }
             catch { return null; }
         }
 
-        /// <summary>
-        /// Get pixel data for hash computation without creating full-size Bitmap copy.
-        /// </summary>
+        /// <summary>Downscaled PNG used only to hash an image without keeping a full copy.</summary>
         public static byte[] GetImageHashData(Image img)
         {
             if (img == null) return null;
             using (var thumb = ScaleDown(img, 32))
             {
+                if (thumb == null) return null;
                 using (var ms = new MemoryStream())
                 {
                     thumb.Save(ms, ImageFormat.Png);
@@ -130,7 +142,7 @@ namespace ClipLite
 
         public void Clear()
         {
-            lock (_cache)
+            lock (_sync)
             {
                 foreach (var img in _cache.Values)
                 {
@@ -143,7 +155,8 @@ namespace ClipLite
 
         public void Remove(string key)
         {
-            lock (_cache)
+            if (string.IsNullOrEmpty(key)) return;
+            lock (_sync)
             {
                 Image img;
                 if (_cache.TryGetValue(key, out img))
@@ -155,104 +168,142 @@ namespace ClipLite
             }
         }
 
-        // ── Private ──
-
-        private void TouchLru(string key)
+        private void TouchLruLocked(string key)
         {
-            lock (_cache)
-            {
-                _lru.Remove(key);
-                _lru.AddFirst(key);
-            }
+            _lru.Remove(key);
+            _lru.AddFirst(key);
         }
 
-        private void AddToCache(string key, Image thumbnail)
+        private bool AddToCacheLocked(string key, Image thumbnail)
         {
-            lock (_cache)
+            if (_cache.ContainsKey(key)) return false;
+
+            if (_cache.Count >= MaxCacheCount && _lru.Last != null)
             {
-                if (_cache.ContainsKey(key)) return;
-
-                // Evict if full
-                if (_cache.Count >= MaxCacheCount)
+                string last = _lru.Last.Value;
+                _lru.RemoveLast();
+                Image old;
+                if (_cache.TryGetValue(last, out old))
                 {
-                    string last = _lru.Last.Value;
-                    _lru.RemoveLast();
-                    Image oldImg;
-                    if (_cache.TryGetValue(last, out oldImg))
-                    {
-                        try { oldImg.Dispose(); } catch { }
-                        _cache.Remove(last);
-                    }
+                    try { old.Dispose(); } catch { }
+                    _cache.Remove(last);
                 }
-
-                _cache[key] = thumbnail;
-                _lru.AddFirst(key);
             }
+
+            _cache[key] = thumbnail;
+            _lru.AddFirst(key);
+            return true;
         }
 
         private void WorkerLoop()
         {
             while (_running)
             {
-                _signal.WaitOne(1000);
+                try { _signal.WaitOne(1000); }
+                catch (ObjectDisposedException) { break; }
 
-                ThumbnailRequest req = null;
-                lock (_pending)
+                while (_running)
                 {
-                    if (_pending.Count > 0)
-                        req = _pending.Dequeue();
-                }
-
-                if (req == null) continue;
-
-                Image thumb = null;
-                try
-                {
-                    byte[] assetData = req.Storage.LoadAsset(req.Key);
-                    if (assetData != null)
+                    ThumbnailRequest request = null;
+                    lock (_sync)
                     {
-                        thumb = GenerateThumbnailFromBytes(assetData, (int)(ThumbnailSize * _dpiScale));
-                        if (thumb != null)
-                            AddToCache(req.Key, thumb);
+                        if (_pending.Count > 0)
+                            request = _pending.Dequeue();
                     }
-                }
-                catch { }
+                    if (request == null) break;
 
-                // Deliver result on UI thread
-                if (req.Invoker != null && req.Invoker.IsHandleCreated)
-                {
-                    req.Invoker.BeginInvoke(new Action(() =>
+                    Image generated = null;
+                    try
                     {
-                        req.Callback(req.Key, thumb);
-                    }));
+                        byte[] assetData = request.Storage.LoadAsset(request.Key);
+                        if (assetData != null)
+                            generated = GenerateThumbnailFromBytes(assetData,
+                                Math.Max(32, (int)(ThumbnailSize * _dpiScale)));
+                    }
+                    catch { generated = null; }
+
+                    Image delivery = null;
+                    bool stored = false;
+                    lock (_sync)
+                    {
+                        if (generated != null)
+                        {
+                            stored = AddToCacheLocked(request.Key, generated);
+                            Image cached;
+                            if (_cache.TryGetValue(request.Key, out cached))
+                            {
+                                try { delivery = new Bitmap(cached); }
+                                catch { delivery = null; }
+                            }
+                        }
+                        _pendingKeys.Remove(request.Key);
+                    }
+
+                    if (generated != null && !stored)
+                        generated.Dispose();
+
+                    if (delivery != null)
+                        Deliver(request.Invoker, request.Key, request.Callback, delivery);
                 }
             }
         }
 
-        private static Image ScaleDown(Image img, int maxSize)
+        private static void Deliver(Control invoker, string key, Action<string, Image> callback,
+            Image image)
         {
-            if (img == null) return null;
+            if (image == null) return;
 
-            int w, h;
+            if (invoker == null || invoker.IsDisposed || !invoker.IsHandleCreated)
+            {
+                image.Dispose();
+                return;
+            }
+
+            try
+            {
+                invoker.BeginInvoke(new Action(delegate
+                {
+                    if (invoker.IsDisposed)
+                    {
+                        image.Dispose();
+                        return;
+                    }
+                    try { callback(key, image); }
+                    catch { /* The callback takes ownership; never dispose after it ran. */ }
+                }));
+            }
+            catch
+            {
+                image.Dispose();
+            }
+        }
+
+        private static Bitmap ScaleDown(Image img, int maxSize)
+        {
+            if (img == null || img.Width <= 0 || img.Height <= 0) return null;
+            if (maxSize < 1) maxSize = 1;
+
+            int width;
+            int height;
             if (img.Width > img.Height)
             {
-                w = maxSize;
-                h = (int)(img.Height * ((float)maxSize / img.Width));
+                width = maxSize;
+                height = (int)(img.Height * ((float)maxSize / img.Width));
             }
             else
             {
-                h = maxSize;
-                w = (int)(img.Width * ((float)maxSize / img.Height));
+                height = maxSize;
+                width = (int)(img.Width * ((float)maxSize / img.Height));
             }
-            if (w < 1) w = 1;
-            if (h < 1) h = 1;
+            if (width < 1) width = 1;
+            if (height < 1) height = 1;
 
-            var thumb = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            var thumb = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(thumb))
             {
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.SmoothingMode = SmoothingMode.HighQuality;
-                g.DrawImage(img, 0, 0, w, h);
+                g.DrawImage(img, 0, 0, width, height);
             }
             return thumb;
         }
@@ -272,10 +323,8 @@ namespace ClipLite
             if (_worker != null && _worker.IsAlive)
                 _worker.Join(500);
             Clear();
-            _signal.Dispose();
+            if (_worker == null || !_worker.IsAlive)
+                _signal.Dispose();
         }
     }
 }
-
-
-

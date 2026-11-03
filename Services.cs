@@ -91,6 +91,12 @@ namespace ClipLite
                 _knownHashes.Add(hash);
         }
 
+        public void RemoveHash(string hash)
+        {
+            if (!string.IsNullOrEmpty(hash))
+                _knownHashes.Remove(hash);
+        }
+
         public string ComputeHash(string text)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(text);
@@ -112,25 +118,27 @@ namespace ClipLite
 
         // ── Self-write helpers ──
 
-        public void CopyText(string text)
+        public bool CopyText(string text)
         {
             lock (_writeLock)
             {
                 _lastSelfWriteTime = DateTime.Now;
-                try { Clipboard.SetText(text); } catch { }
+                try { Clipboard.SetText(text); return true; }
+                catch { return false; }
             }
         }
 
-        public void CopyImage(Image image)
+        public bool CopyImage(Image image)
         {
             lock (_writeLock)
             {
                 _lastSelfWriteTime = DateTime.Now;
-                try { Clipboard.SetImage(image); } catch { }
+                try { Clipboard.SetImage(image); return true; }
+                catch { return false; }
             }
         }
 
-        public void CopyFilePaths(string[] paths)
+        public bool CopyFilePaths(string[] paths)
         {
             lock (_writeLock)
             {
@@ -140,8 +148,9 @@ namespace ClipLite
                     var col = new System.Collections.Specialized.StringCollection();
                     col.AddRange(paths);
                     Clipboard.SetFileDropList(col);
+                    return true;
                 }
-                catch { }
+                catch { return false; }
             }
         }
 
@@ -176,7 +185,12 @@ namespace ClipLite
                 using (var proc = Process.GetProcessById((int)pid))
                 {
                     string name = proc.ProcessName.ToLower() + ".exe";
-                    return ExcludedApps.Contains(name);
+                    for (int i = 0; i < ExcludedApps.Count; i++)
+                    {
+                        if (string.Equals(ExcludedApps[i], name, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                    return false;
                 }
             }
             catch { return false; }
@@ -399,7 +413,7 @@ namespace ClipLite
         }
     }
 
-    // ── HotkeyManager (unchanged) ──
+    // ── HotkeyManager ──
 
     public class HotkeyManager
     {
@@ -412,21 +426,102 @@ namespace ClipLite
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        private const uint MOD_ALT = 0x0001;
         private const uint MOD_CONTROL = 0x0002;
         private const uint MOD_SHIFT = 0x0004;
-        private const uint VK_V = 0x56;
+        private const uint MOD_NOREPEAT = 0x4000;
+
+        private IntPtr _windowHandle;
+        private int _modifiers;
+        private int _key;
+        private bool _registered;
 
         public event Action HotkeyPressed;
 
         public bool Register(IntPtr hWnd)
         {
-            return RegisterHotKey(hWnd, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT, VK_V);
+            return Configure(hWnd, (int)(MOD_CONTROL | MOD_SHIFT), 0x56);
+        }
+
+        /// <summary>Atomically replace the current binding. A zero key disables it.</summary>
+        public bool Configure(IntPtr hWnd, int modifiers, int key)
+        {
+            Unregister(hWnd);
+            _windowHandle = hWnd;
+            _modifiers = modifiers & (int)(MOD_ALT | MOD_CONTROL | MOD_SHIFT);
+            _key = key;
+
+            if (hWnd == IntPtr.Zero || key <= 0 || key > 255 || _modifiers == 0)
+                return true; // Explicitly disabled is a valid configuration.
+
+            _registered = RegisterHotKey(hWnd, HOTKEY_ID,
+                (uint)_modifiers | MOD_NOREPEAT, (uint)key);
+            return _registered;
+        }
+
+        public static bool TryCapture(Keys keyData, out int modifiers, out int key)
+        {
+            Keys code = keyData & Keys.KeyCode;
+            modifiers = 0;
+            key = 0;
+            if (code == Keys.ControlKey || code == Keys.ShiftKey || code == Keys.Menu
+                || code == Keys.LWin || code == Keys.RWin)
+                return false;
+
+            if ((keyData & Keys.Control) != 0) modifiers |= (int)MOD_CONTROL;
+            if ((keyData & Keys.Alt) != 0) modifiers |= (int)MOD_ALT;
+            if ((keyData & Keys.Shift) != 0) modifiers |= (int)MOD_SHIFT;
+
+            // A Shift-only global hotkey would fire while typing capital letters.
+            if ((modifiers & (int)(MOD_CONTROL | MOD_ALT)) == 0) return false;
+
+            int vk = (int)code;
+            if (vk <= 0 || vk > 255) return false;
+            key = vk;
+            return true;
+        }
+
+        public static string FormatHotkey(int modifiers, int key)
+        {
+            if (key <= 0 || modifiers == 0) return "无";
+            var parts = new List<string>();
+            if ((modifiers & (int)MOD_CONTROL) != 0) parts.Add("Ctrl");
+            if ((modifiers & (int)MOD_ALT) != 0) parts.Add("Alt");
+            if ((modifiers & (int)MOD_SHIFT) != 0) parts.Add("Shift");
+            parts.Add(KeyName(key));
+            return string.Join(" + ", parts.ToArray());
+        }
+
+        private static string KeyName(int key)
+        {
+            if (key >= 0x70 && key <= 0x87) return "F" + (key - 0x6F);
+            if (key >= 0x41 && key <= 0x5A) return ((char)key).ToString();
+            if (key >= 0x30 && key <= 0x39) return ((char)key).ToString();
+            switch ((Keys)key)
+            {
+                case Keys.Space: return "Space";
+                case Keys.Enter: return "Enter";
+                case Keys.Tab: return "Tab";
+                case Keys.Home: return "Home";
+                case Keys.End: return "End";
+                case Keys.PageUp: return "PageUp";
+                case Keys.PageDown: return "PageDown";
+                case Keys.Insert: return "Insert";
+                case Keys.Delete: return "Delete";
+                case Keys.Up: return "↑";
+                case Keys.Down: return "↓";
+                case Keys.Left: return "←";
+                case Keys.Right: return "→";
+                default: return "0x" + key.ToString("X2");
+            }
         }
 
         public void Unregister(IntPtr hWnd)
         {
-            if (hWnd != IntPtr.Zero)
-                UnregisterHotKey(hWnd, HOTKEY_ID);
+            IntPtr target = _windowHandle != IntPtr.Zero ? _windowHandle : hWnd;
+            if (_registered && target != IntPtr.Zero)
+                UnregisterHotKey(target, HOTKEY_ID);
+            _registered = false;
         }
 
         public bool HandleMessage(ref Message m)

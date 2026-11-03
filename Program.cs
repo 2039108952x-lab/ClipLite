@@ -106,13 +106,18 @@ namespace ClipLite
             _clipboardMonitor.WindowMessageReceived += OnWindowMessage;
             _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
             _clipboardMonitor.EnsureHandle();
-            bool hotkeyOk = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
+            bool hotkeyOk = _hotkeyManager.Configure(_clipboardMonitor.WindowHandle,
+                _settings.HotkeyModifiers, _settings.HotkeyKey);
 
             // ── History form ──
             _historyForm = new HistoryForm(_storage, _thumbCache);
+            _historyForm.MaxEntries = _settings.MaxEntries;
             _historyForm.SetEntries(savedEntries);
-            _historyForm.ItemSelected += OnItemSelected;
             _historyForm.EntryCopied += OnEntryCopied;
+            _historyForm.EntryRemoved += OnEntryRemoved;
+            _historyForm.EntryEvicted += OnEntryEvicted;
+            _historyForm.HistoryChanged += SaveHistory;
+            _historyForm.SettingsRequested += ShowSettings;
 
             // ── Tray icon ──
             _trayIcon = new NotifyIcon
@@ -139,7 +144,8 @@ namespace ClipLite
             if (!hotkeyOk)
             {
                 _trayIcon.ShowBalloonTip(3000, "ClipLite",
-                    "全局热键 Ctrl+Shift+V 注册失败，可能被其他程序占用。可以从托盘菜单打开历史。",
+                    "全局热键 " + HotkeyManager.FormatHotkey(_settings.HotkeyModifiers, _settings.HotkeyKey)
+                    + " 注册失败，可能被其他程序占用。可以从托盘菜单打开历史。",
                     ToolTipIcon.Warning);
             }
 
@@ -346,19 +352,15 @@ namespace ClipLite
 
         // ── Clipboard operations ──
 
-        private void OnItemSelected(string text)
-        {
-            // Backward compat — handled by EntryCopied
-        }
-
         private void OnEntryCopied(ClipboardEntry entry)
         {
+            bool copied = false;
             switch (entry.Type)
             {
                 case "text":
                 case "richtext":
                 case "html":
-                    _clipboardMonitor.CopyText(entry.Text ?? "");
+                    copied = _clipboardMonitor.CopyText(entry.Text ?? "");
                     break;
 
                 case "image":
@@ -370,7 +372,7 @@ namespace ClipLite
                             using (var ms = new MemoryStream(imgData))
                             using (var img = Image.FromStream(ms))
                             {
-                                _clipboardMonitor.CopyImage(img);
+                                copied = _clipboardMonitor.CopyImage(img);
                             }
                         }
                     }
@@ -379,9 +381,44 @@ namespace ClipLite
                 case "filelist":
                     var paths = entry.GetFilePaths();
                     if (paths.Length > 0)
-                        _clipboardMonitor.CopyFilePaths(paths);
+                        copied = _clipboardMonitor.CopyFilePaths(paths);
                     break;
             }
+
+            if (copied && _settings.ShowCopyToast && _trayIcon != null)
+            {
+                string preview = (entry.PreviewText ?? "").Replace("\r", " ").Replace("\n", " ");
+                if (preview.Length > 48) preview = preview.Substring(0, 48) + "…";
+                _trayIcon.ShowBalloonTip(1500, "ClipLite",
+                    "已复制到剪贴板" + (preview.Length > 0 ? "：" + preview : ""),
+                    ToolTipIcon.Info);
+            }
+        }
+
+        private void OnEntryRemoved(ClipboardEntry entry)
+        {
+            if (entry == null) return;
+            _clipboardMonitor.RemoveHash(entry.Id);
+            if (!string.IsNullOrEmpty(entry.ImageFile))
+                _thumbCache.Remove(entry.ImageFile);
+            _storage.DeleteAsset(entry.ImageFile);
+            _storage.DeleteAsset(entry.RtfFile);
+            _storage.DeleteAsset(entry.HtmlFile);
+            _storage.DeleteAsset(entry.AudioFile);
+            SaveHistory();
+        }
+
+        private void OnEntryEvicted(ClipboardEntry entry)
+        {
+            // Trimming happens inside AddEntry; the caller saves immediately after.
+            if (entry == null) return;
+            _clipboardMonitor.RemoveHash(entry.Id);
+            if (!string.IsNullOrEmpty(entry.ImageFile))
+                _thumbCache.Remove(entry.ImageFile);
+            _storage.DeleteAsset(entry.ImageFile);
+            _storage.DeleteAsset(entry.RtfFile);
+            _storage.DeleteAsset(entry.HtmlFile);
+            _storage.DeleteAsset(entry.AudioFile);
         }
 
         // ── Startup clipboard capture ──
@@ -481,11 +518,28 @@ namespace ClipLite
 
         private void ShowSettings()
         {
-            using (var form = new SettingsForm(_settings, OnSettingsChanged, _storage))
+            // Suspend the global hotkey while the capture box is open, otherwise pressing
+            // the current combination would open the history panel instead of being captured.
+            _hotkeyManager.Unregister(_clipboardMonitor.WindowHandle);
+
+            // A clone keeps Cancel side-effect free and lets OnSettingsChanged compare
+            // the previous encryption values instead of seeing mutated settings.
+            using (var form = new SettingsForm(_settings.Clone(), OnSettingsChanged,
+                _storage, _historyForm.GetAllEntries().Count))
             {
                 form.ShowDialog();
                 if ((form.Tag as string) == "clear")
                     ClearHistoryCore();
+            }
+
+            bool hotkeyOk = _hotkeyManager.Configure(_clipboardMonitor.WindowHandle,
+                _settings.HotkeyModifiers, _settings.HotkeyKey);
+            if (!hotkeyOk && _trayIcon != null)
+            {
+                _trayIcon.ShowBalloonTip(3000, "ClipLite",
+                    "热键 " + HotkeyManager.FormatHotkey(_settings.HotkeyModifiers, _settings.HotkeyKey)
+                    + " 注册失败，可能被其他程序占用。",
+                    ToolTipIcon.Warning);
             }
         }
 
@@ -498,6 +552,7 @@ namespace ClipLite
             _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
             ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
             _clipboardMonitor.CaptureMode = _settings.CaptureMode;
+            _historyForm.MaxEntries = _settings.MaxEntries;
             SetAutoStart(_settings.AutoStart);
 
             // Re-encrypt (or decrypt) the existing history with the new key. Without this,

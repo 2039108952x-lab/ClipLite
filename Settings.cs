@@ -18,6 +18,12 @@ namespace ClipLite
         public long MaxTotalSize { get; set; }
         public int Version { get; set; }
 
+        // Win32 modifier mask (Alt=1, Ctrl=2, Shift=4) and virtual-key code.
+        // Zero in either field disables the global hotkey.
+        public int HotkeyModifiers { get; set; }
+        public int HotkeyKey { get; set; }
+        public bool ShowCopyToast { get; set; }
+
         private static readonly string _settingsPath = Path.Combine(
             Path.GetDirectoryName(typeof(Program).Assembly.Location),
             "cliplite_settings.json"
@@ -33,7 +39,31 @@ namespace ClipLite
             EncryptionKey = "";
             MaxEntries = 500;
             MaxTotalSize = 50L * 1024 * 1024;
-            Version = 2;
+            HotkeyModifiers = 2 | 4; // Ctrl + Shift
+            HotkeyKey = 0x56;        // V
+            ShowCopyToast = true;
+            Version = 3;
+        }
+
+        /// <summary>SettingsForm edits a copy so cancel is side-effect free and
+        /// Program can compare the previous encryption/hotkey values on save.</summary>
+        public ClipLiteSettings Clone()
+        {
+            return new ClipLiteSettings
+            {
+                ExcludedApps = new List<string>(ExcludedApps ?? new List<string>()),
+                ShowFileDetails = ShowFileDetails,
+                AutoStart = AutoStart,
+                CaptureMode = CaptureMode,
+                EnableEncryption = EnableEncryption,
+                EncryptionKey = EncryptionKey,
+                MaxEntries = MaxEntries,
+                MaxTotalSize = MaxTotalSize,
+                Version = Version,
+                HotkeyModifiers = HotkeyModifiers,
+                HotkeyKey = HotkeyKey,
+                ShowCopyToast = ShowCopyToast
+            };
         }
 
         public static ClipLiteSettings Load()
@@ -83,12 +113,14 @@ namespace ClipLite
             sb.Append("\"version\":").Append(Version);
             sb.Append(",\"maxEntries\":").Append(MaxEntries);
             sb.Append(",\"maxTotalSize\":").Append(MaxTotalSize);
-            
             sb.Append(",\"showFileDetails\":").Append(ShowFileDetails ? "true" : "false");
             sb.Append(",\"autoStart\":").Append(AutoStart ? "true" : "false");
             sb.Append(",\"captureMode\":\"").Append(CaptureMode ?? "full").Append("\"");
             sb.Append(",\"enableEncryption\":").Append(EnableEncryption ? "true" : "false");
             sb.Append(",\"encryptionKey\":\"").Append(SafeStorage.JsonEscape(EncryptionKey ?? "")).Append("\"");
+            sb.Append(",\"hotkeyModifiers\":").Append(HotkeyModifiers);
+            sb.Append(",\"hotkeyKey\":").Append(HotkeyKey);
+            sb.Append(",\"showCopyToast\":").Append(ShowCopyToast ? "true" : "false");
             sb.Append(",\"excludedApps\":[");
             for (int i = 0; i < ExcludedApps.Count; i++)
             {
@@ -110,6 +142,7 @@ namespace ClipLite
             if (s.MaxTotalSize <= 0) s.MaxTotalSize = 50L * 1024 * 1024;
 
             s.Version = (int)SafeStorage.ExtractLong(json, "version");
+            if (s.Version <= 0) s.Version = 3;
             s.ShowFileDetails = SafeStorage.ExtractRaw(json, "showFileDetails") != "false";
 
             // Older settings files have no autoStart key at all; keep the historical
@@ -120,6 +153,22 @@ namespace ClipLite
             s.CaptureMode = SafeStorage.ExtractStr(json, "captureMode") ?? "full";
             s.EnableEncryption = SafeStorage.ExtractRaw(json, "enableEncryption") == "true";
             s.EncryptionKey = SafeStorage.ExtractStr(json, "encryptionKey") ?? "";
+
+            string hotkeyModifiersRaw = SafeStorage.ExtractRaw(json, "hotkeyModifiers");
+            if (hotkeyModifiersRaw != null)
+                s.HotkeyModifiers = (int)SafeStorage.ExtractLong(json, "hotkeyModifiers");
+            string hotkeyKeyRaw = SafeStorage.ExtractRaw(json, "hotkeyKey");
+            if (hotkeyKeyRaw != null)
+                s.HotkeyKey = (int)SafeStorage.ExtractLong(json, "hotkeyKey");
+            s.HotkeyModifiers &= 1 | 2 | 4;
+            if (s.HotkeyModifiers == 0 || s.HotkeyKey <= 0 || s.HotkeyKey > 255
+                || (s.HotkeyModifiers & (1 | 2)) == 0)
+            {
+                // Shift-only is rejected by the capture UI; keep hand-edited files consistent.
+                s.HotkeyModifiers = 0;
+                s.HotkeyKey = 0;
+            }
+            s.ShowCopyToast = SafeStorage.ExtractRaw(json, "showCopyToast") != "false";
 
             // Parse excluded apps array
             string appsRaw = SafeStorage.ExtractRaw(json, "excludedApps");
@@ -144,5 +193,3 @@ namespace ClipLite
         }
     }
 }
-
-

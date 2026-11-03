@@ -30,6 +30,10 @@ namespace ClipLite
         private int _hotkeyModifiers;
         private int _hotkeyKey;
         private bool _hotkeyCapturing;
+        private bool _loadingSettings;
+
+        /// <summary>Raised when the toast position is changed; the choice is saved immediately.</summary>
+        public event Action<string> ToastPositionChanged;
 
         private bool _dragging;
         private Point _dragOffset;
@@ -212,6 +216,7 @@ namespace ClipLite
             };
             _cboToastPosition.Items.Add("跟随复制内容");
             _cboToastPosition.Items.Add("屏幕底部");
+            _cboToastPosition.SelectedIndexChanged += OnToastPositionChanged;
             _chkCopyToast.CheckedChanged += delegate
             {
                 _cboToastPosition.Enabled = _chkCopyToast.Checked;
@@ -466,22 +471,41 @@ namespace ClipLite
 
         private void LoadSettings()
         {
-            _chkFileDetails.Checked = _settings.ShowFileDetails;
-            _rdoFull.Checked = (_settings.CaptureMode == "full");
-            _rdoTextOnly.Checked = (_settings.CaptureMode != "full");
-            _chkAutoStart.Checked = _settings.AutoStart;
-            _chkCopyToast.Checked = _settings.ShowCopyToast;
-            _cboToastPosition.SelectedIndex = _settings.ToastPosition == "bottom" ? 1 : 0;
-            _cboToastPosition.Enabled = _chkCopyToast.Checked;
-            _chkEncryption.Checked = _settings.EnableEncryption;
+            _loadingSettings = true;
+            try
+            {
+                _chkFileDetails.Checked = _settings.ShowFileDetails;
+                _rdoFull.Checked = (_settings.CaptureMode == "full");
+                _rdoTextOnly.Checked = (_settings.CaptureMode != "full");
+                _chkAutoStart.Checked = _settings.AutoStart;
+                _chkCopyToast.Checked = _settings.ShowCopyToast;
+                _cboToastPosition.SelectedIndex = _settings.ToastPosition == "bottom" ? 1 : 0;
+                _cboToastPosition.Enabled = _chkCopyToast.Checked;
+                _chkEncryption.Checked = _settings.EnableEncryption;
 
-            _hotkeyModifiers = _settings.HotkeyModifiers;
-            _hotkeyKey = _settings.HotkeyKey;
-            UpdateHotkeyText();
+                _hotkeyModifiers = _settings.HotkeyModifiers;
+                _hotkeyKey = _settings.HotkeyKey;
+                UpdateHotkeyText();
 
-            _lstExcluded.Items.Clear();
-            foreach (var app in _settings.ExcludedApps)
-                _lstExcluded.Items.Add(app);
+                _lstExcluded.Items.Clear();
+                foreach (var app in _settings.ExcludedApps)
+                    _lstExcluded.Items.Add(app);
+            }
+            finally
+            {
+                _loadingSettings = false;
+            }
+        }
+
+        private void OnToastPositionChanged(object sender, EventArgs e)
+        {
+            if (_loadingSettings || _cboToastPosition.SelectedIndex < 0) return;
+
+            string position = _cboToastPosition.SelectedIndex == 1 ? "bottom" : "cursor";
+            _settings.ToastPosition = position;
+            _settings.Save(); // display preference takes effect immediately
+            if (ToastPositionChanged != null)
+                ToastPositionChanged(position);
         }
 
         private void UpdateHotkeyText()

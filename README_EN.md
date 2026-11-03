@@ -50,7 +50,7 @@
 - Hover actions: copy / delete; right-click menu: copy, pin, delete
 - The panel hides automatically; paste with `Ctrl + V`
 - Optional lightweight in-app toast on every successful copy (normal Ctrl+C and history reuse), not affected by Windows notification settings
-- Toast position can be switched between **near the content** and **bottom of the screen**
+- Toast position can be switched between **near the content** and **bottom of the screen**; the choice is applied and saved immediately
 
 ### 5. Search & Filter
 - Real-time search over text, file paths, RTF previews and type names
@@ -73,7 +73,7 @@
 - Start with Windows
 - Excluded applications
 - Copy-success notification
-- Toast position: near the copied content or bottom-center of the screen
+- Toast position: near the copied content or bottom-center of the screen (applied immediately)
 - AES-256 history encryption
 - Storage usage, entry count and data location
 

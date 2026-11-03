@@ -565,6 +565,7 @@ namespace ClipLite
             using (var form = new SettingsForm(_settings.Clone(), OnSettingsChanged,
                 _storage, _historyForm.GetAllEntries().Count))
             {
+                form.ToastPositionChanged += OnToastPositionChanged;
                 form.ShowDialog();
                 if ((form.Tag as string) == "clear")
                     ClearHistoryCore();
@@ -579,6 +580,14 @@ namespace ClipLite
                     + " 注册失败，可能被其他程序占用。",
                     ToolTipIcon.Warning);
             }
+        }
+
+        private void OnToastPositionChanged(string position)
+        {
+            // The settings form saved this preference immediately; mirror it in the
+            // runtime instance so the next copy honours it without reopening the app.
+            if (_settings != null)
+                _settings.ToastPosition = position;
         }
 
         private void OnSettingsChanged(ClipLiteSettings newSettings)

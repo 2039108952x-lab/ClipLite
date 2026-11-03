@@ -48,7 +48,7 @@
 ### 4. Single-click Reuse
 - **One click** on any row copies it — no double-click required
 - Hover actions: copy / delete; right-click menu: copy, pin, delete
-- The panel hides automatically; paste with `Ctrl + V`
+- The window stays open after copying; close with `Esc` / `✕`, or switch to another app to hide it
 - Optional lightweight in-app toast on every successful copy (normal Ctrl+C and history reuse), not affected by Windows notification settings
 - Toast position can be switched between **near the content** and **bottom of the screen**; the choice is applied and saved immediately
 

@@ -38,6 +38,8 @@ namespace ClipLite
         private int _hoveredIndex = -1;
         private string _typeFilter = "all";
         private ClipboardEntry _contextEntry;
+        private bool _dragging;
+        private Point _dragOffset;
 
         private Font _titleFont;
         private Font _previewFont;
@@ -153,6 +155,13 @@ namespace ClipLite
                 AutoSize = true
             };
             _titleBar.Controls.Add(_titleLabel);
+
+            _titleBar.MouseDown += OnTitleMouseDown;
+            _titleBar.MouseMove += OnTitleMouseMove;
+            _titleBar.MouseUp += OnTitleMouseUp;
+            _titleLabel.MouseDown += OnTitleMouseDown;
+            _titleLabel.MouseMove += OnTitleMouseMove;
+            _titleLabel.MouseUp += OnTitleMouseUp;
 
             _settingsButton = new Label
             {
@@ -668,7 +677,28 @@ namespace ClipLite
         {
             if (entry == null) return;
             if (EntryCopied != null) EntryCopied(entry);
-            Hide();
+            // Keep the history window open so the user can copy several entries,
+            // pin/delete items or drag the window without it disappearing.
+        }
+
+        private void OnTitleMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            _dragging = true;
+            Point screen = PointToScreen(e.Location);
+            _dragOffset = new Point(screen.X - Left, screen.Y - Top);
+        }
+
+        private void OnTitleMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_dragging) return;
+            Point screen = PointToScreen(e.Location);
+            Location = new Point(screen.X - _dragOffset.X, screen.Y - _dragOffset.Y);
+        }
+
+        private void OnTitleMouseUp(object sender, MouseEventArgs e)
+        {
+            _dragging = false;
         }
 
         private void OnItemMenuOpening(object sender, CancelEventArgs e)

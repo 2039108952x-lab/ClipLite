@@ -20,6 +20,7 @@ namespace ClipLite
         private readonly Font _detailFont;
         private DateTime _shownAt;
         private string _detail;
+        private string _title;
         private bool _closing;
 
         /// <summary>"cursor" (default) or "bottom".</summary>
@@ -28,6 +29,7 @@ namespace ClipLite
         public ToastForm()
         {
             PositionMode = "cursor";
+            _title = "已复制到剪贴板";
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.TopMost = true;
@@ -68,6 +70,12 @@ namespace ClipLite
 
         public void ShowToast(string preview)
         {
+            ShowToast(preview, "已复制到剪贴板");
+        }
+
+        public void ShowToast(string preview, string title)
+        {
+            _title = string.IsNullOrEmpty(title) ? "已复制到剪贴板" : title;
             _detail = preview ?? "";
             this.Height = _detail.Length > 0 ? 66 : 54;
             this.Width = ToastWidth;
@@ -137,7 +145,7 @@ namespace ClipLite
             int textX = iconX + 40;
             int textWidth = Width - textX - 12;
             int titleY = _detail.Length > 0 ? 11 : (Height - 18) / 2;
-            TextRenderer.DrawText(g, "已复制到剪贴板", _titleFont,
+            TextRenderer.DrawText(g, _title, _titleFont,
                 new Rectangle(textX, titleY, textWidth, 18), UiTheme.TextPrimary,
                 TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
 

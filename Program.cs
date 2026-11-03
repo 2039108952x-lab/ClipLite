@@ -51,6 +51,7 @@ namespace ClipLite
         private ThumbnailCache _thumbCache;
         private ToastForm _toast;
         private bool _paused;
+        private bool _hotkeyRegistered;
         private Icon _appIcon;
 
         public ClipLiteContext()
@@ -109,6 +110,7 @@ namespace ClipLite
             _clipboardMonitor.EnsureHandle();
             bool hotkeyOk = _hotkeyManager.Configure(_clipboardMonitor.WindowHandle,
                 _settings.HotkeyModifiers, _settings.HotkeyKey);
+            _hotkeyRegistered = hotkeyOk;
 
             // ── History form ──
             _historyForm = new HistoryForm(_storage, _thumbCache);
@@ -161,6 +163,21 @@ namespace ClipLite
 
             // ── Capture current clipboard at startup ──
             TryCaptureCurrentClipboard();
+
+            // Confirm in the same lightweight style as the copy toast.
+            ShowStartupToast();
+        }
+
+        private void ShowStartupToast()
+        {
+            string detail = _hotkeyRegistered
+                ? "按 " + HotkeyManager.FormatHotkey(_settings.HotkeyModifiers, _settings.HotkeyKey) + " 打开历史"
+                : "可从托盘图标打开历史";
+
+            if (_toast == null || _toast.IsDisposed)
+                _toast = new ToastForm();
+            _toast.PositionMode = _settings.ToastPosition == "bottom" ? "bottom" : "cursor";
+            _toast.ShowToast(detail, "ClipLite 已启动");
         }
 
         private void OnWindowMessage(Message m)

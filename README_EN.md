@@ -66,6 +66,7 @@
 - Runs silently in the system tray
 - Right-click menu: Show History / Pause / Clear / Settings / Quit
 - Double-click the tray icon to open the history panel
+- A lightweight "ClipLite is running" toast appears at startup and shows the history hotkey
 
 ### 8. Settings
 - Global hotkey capture

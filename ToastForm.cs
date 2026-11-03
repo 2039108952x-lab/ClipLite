@@ -22,8 +22,12 @@ namespace ClipLite
         private string _detail;
         private bool _closing;
 
+        /// <summary>"cursor" (default) or "bottom".</summary>
+        public string PositionMode { get; set; }
+
         public ToastForm()
         {
+            PositionMode = "cursor";
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.TopMost = true;
@@ -69,13 +73,24 @@ namespace ClipLite
             this.Width = ToastWidth;
 
             Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
-            int x = Cursor.Position.X + 16;
-            int y = Cursor.Position.Y + 16;
-            if (x + Width > area.Right - 12) x = Cursor.Position.X - Width - 16;
-            if (y + Height > area.Bottom - 12) y = Cursor.Position.Y - Height - 16;
-            if (x < area.Left + 12) x = area.Left + 12;
-            if (y < area.Top + 12) y = area.Top + 12;
-            this.Location = new Point(x, y);
+            if (string.Equals(PositionMode, "bottom", StringComparison.OrdinalIgnoreCase))
+            {
+                int bottomMargin = 56;
+                int centeredX = area.Left + (area.Width - Width) / 2;
+                int bottomY = area.Bottom - Height - bottomMargin;
+                if (bottomY < area.Top + 12) bottomY = area.Top + 12;
+                this.Location = new Point(centeredX, bottomY);
+            }
+            else
+            {
+                int x = Cursor.Position.X + 16;
+                int y = Cursor.Position.Y + 16;
+                if (x + Width > area.Right - 12) x = Cursor.Position.X - Width - 16;
+                if (y + Height > area.Bottom - 12) y = Cursor.Position.Y - Height - 16;
+                if (x < area.Left + 12) x = area.Left + 12;
+                if (y < area.Top + 12) y = area.Top + 12;
+                this.Location = new Point(x, y);
+            }
 
             _closing = false;
             _shownAt = DateTime.Now;

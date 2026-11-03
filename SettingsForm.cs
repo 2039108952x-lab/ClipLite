@@ -19,6 +19,7 @@ namespace ClipLite
         private CheckBox _chkAutoStart;
         private TextBox _hotkeyBox;
         private CheckBox _chkCopyToast;
+        private ComboBox _cboToastPosition;
         private TextBox _txtNewApp;
         private ListBox _lstExcluded;
         private Button _btnAdd, _btnRemove;
@@ -189,6 +190,33 @@ namespace ClipLite
                 ForeColor = UiTheme.TextPrimary
             };
             this.Controls.Add(_chkCopyToast);
+
+            var positionLabel = new Label
+            {
+                Text = "位置",
+                Location = new Point(left + 166, y + 3),
+                AutoSize = true,
+                Font = UiTheme.CreateFont(8.5F, FontStyle.Regular),
+                ForeColor = UiTheme.TextSecondary
+            };
+            this.Controls.Add(positionLabel);
+
+            _cboToastPosition = new ComboBox
+            {
+                Location = new Point(left + 205, y - 2),
+                Width = 155,
+                Height = 26,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = UiTheme.CreateFont(8.5F, FontStyle.Regular),
+                ForeColor = UiTheme.TextPrimary
+            };
+            _cboToastPosition.Items.Add("跟随复制内容");
+            _cboToastPosition.Items.Add("屏幕底部");
+            _chkCopyToast.CheckedChanged += delegate
+            {
+                _cboToastPosition.Enabled = _chkCopyToast.Checked;
+            };
+            this.Controls.Add(_cboToastPosition);
 
             y += 32;
             AddSection("排除程序", left, y);
@@ -443,6 +471,8 @@ namespace ClipLite
             _rdoTextOnly.Checked = (_settings.CaptureMode != "full");
             _chkAutoStart.Checked = _settings.AutoStart;
             _chkCopyToast.Checked = _settings.ShowCopyToast;
+            _cboToastPosition.SelectedIndex = _settings.ToastPosition == "bottom" ? 1 : 0;
+            _cboToastPosition.Enabled = _chkCopyToast.Checked;
             _chkEncryption.Checked = _settings.EnableEncryption;
 
             _hotkeyModifiers = _settings.HotkeyModifiers;
@@ -518,6 +548,7 @@ namespace ClipLite
             _settings.HotkeyModifiers = _hotkeyModifiers;
             _settings.HotkeyKey = _hotkeyKey;
             _settings.ShowCopyToast = _chkCopyToast.Checked;
+            _settings.ToastPosition = _cboToastPosition.SelectedIndex == 1 ? "bottom" : "cursor";
             _settings.EnableEncryption = _chkEncryption.Checked;
 
             _settings.ExcludedApps.Clear();

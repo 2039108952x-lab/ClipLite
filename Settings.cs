@@ -23,6 +23,7 @@ namespace ClipLite
         public int HotkeyModifiers { get; set; }
         public int HotkeyKey { get; set; }
         public bool ShowCopyToast { get; set; }
+        public string ToastPosition { get; set; }   // "cursor" | "bottom"
 
         private static readonly string _settingsPath = Path.Combine(
             Path.GetDirectoryName(typeof(Program).Assembly.Location),
@@ -42,6 +43,7 @@ namespace ClipLite
             HotkeyModifiers = 2 | 4; // Ctrl + Shift
             HotkeyKey = 0x56;        // V
             ShowCopyToast = true;
+            ToastPosition = "cursor";
             Version = 3;
         }
 
@@ -62,7 +64,8 @@ namespace ClipLite
                 Version = Version,
                 HotkeyModifiers = HotkeyModifiers,
                 HotkeyKey = HotkeyKey,
-                ShowCopyToast = ShowCopyToast
+                ShowCopyToast = ShowCopyToast,
+                ToastPosition = ToastPosition
             };
         }
 
@@ -121,6 +124,7 @@ namespace ClipLite
             sb.Append(",\"hotkeyModifiers\":").Append(HotkeyModifiers);
             sb.Append(",\"hotkeyKey\":").Append(HotkeyKey);
             sb.Append(",\"showCopyToast\":").Append(ShowCopyToast ? "true" : "false");
+            sb.Append(",\"toastPosition\":\"").Append(SafeStorage.JsonEscape(ToastPosition ?? "cursor")).Append("\"");
             sb.Append(",\"excludedApps\":[");
             for (int i = 0; i < ExcludedApps.Count; i++)
             {
@@ -169,6 +173,8 @@ namespace ClipLite
                 s.HotkeyKey = 0;
             }
             s.ShowCopyToast = SafeStorage.ExtractRaw(json, "showCopyToast") != "false";
+            s.ToastPosition = SafeStorage.ExtractStr(json, "toastPosition");
+            if (s.ToastPosition != "bottom") s.ToastPosition = "cursor";
 
             // Parse excluded apps array
             string appsRaw = SafeStorage.ExtractRaw(json, "excludedApps");

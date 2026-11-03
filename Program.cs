@@ -429,6 +429,7 @@ namespace ClipLite
             if (text.Length > 48) text = text.Substring(0, 48) + "…";
             if (_toast == null || _toast.IsDisposed)
                 _toast = new ToastForm();
+            _toast.PositionMode = _settings.ToastPosition == "bottom" ? "bottom" : "cursor";
             _toast.ShowToast(text);
         }
 

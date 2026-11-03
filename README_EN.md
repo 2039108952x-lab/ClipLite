@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Downloads](https://img.shields.io/github/v/release/2039108952x-lab/ClipLite)](https://github.com/2039108952x-lab/ClipLite/releases)
 
-**ClipLite** is a lightweight, portable clipboard manager for Windows. One single EXE — **about 79 KB** — no installer, no ads, instant launch.
+**ClipLite** is a lightweight, portable clipboard manager for Windows. One single EXE — **about 81 KB** — no installer, no ads, instant launch.
 
 ![screenshot](screenshot.png)
 
@@ -16,7 +16,7 @@
 
 | Metric | Value |
 |--------|-------|
-| EXE Size | **~79 KB** (single file) |
+| EXE Size | **~81 KB** (single file) |
 | Launch Time | **< 50 ms** |
 | Hotkey Response | **Instant** (pre-created window) |
 | CPU Usage | **0%** (event-driven, no polling) |
@@ -49,7 +49,7 @@
 - **One click** on any row copies it — no double-click required
 - Hover actions: copy / delete; right-click menu: copy, pin, delete
 - The panel hides automatically; paste with `Ctrl + V`
-- Optional tray notification on successful copy
+- Optional lightweight in-app toast on successful copy (not affected by Windows notification settings)
 
 ### 5. Search & Filter
 - Real-time search over text, file paths, RTF previews and type names
@@ -96,8 +96,9 @@ ClipLite/
 ├── SettingsForm.cs      # Settings window UI
 ├── ThumbnailCache.cs    # Async thumbnail cache (LRU)
 ├── UiTheme.cs           # Palette, rounded panels, cue text box
+├── ToastForm.cs         # In-app copy-success toast
 ├── build.bat            # One-click build script
-├── ClipLite.exe         # Build output (~79 KB)
+├── ClipLite.exe         # Build output (~81 KB)
 └── cliplite_data/       # Runtime data (generated)
 ```
 
@@ -105,7 +106,7 @@ ClipLite/
 
 | Layer | Components |
 |-------|-----------|
-| Presentation | `HistoryForm.cs`, `SettingsForm.cs`, `UiTheme.cs` |
+| Presentation | `HistoryForm.cs`, `SettingsForm.cs`, `ToastForm.cs`, `UiTheme.cs` |
 | Business Logic | `Services.cs` — `ClipboardMonitor`, `HotkeyManager`; `Program.cs` — lifecycle |
 | Data | `Models.cs` — `ClipboardEntry`, `SafeStorage`; `Settings.cs` — settings persistence |
 
@@ -126,7 +127,7 @@ cd ClipLite
 build.bat
 ```
 
-Output: `ClipLite.exe` (~79 KB).
+Output: `ClipLite.exe` (~81 KB).
 
 **Requirements:** Windows 10/11 with .NET Framework 4.8 (pre-installed). Nothing else needed.
 

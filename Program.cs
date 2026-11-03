@@ -49,6 +49,7 @@ namespace ClipLite
         private SafeStorage _storage;
         private ClipLiteSettings _settings;
         private ThumbnailCache _thumbCache;
+        private ToastForm _toast;
         private bool _paused;
         private Icon _appIcon;
 
@@ -385,13 +386,13 @@ namespace ClipLite
                     break;
             }
 
-            if (copied && _settings.ShowCopyToast && _trayIcon != null)
+            if (copied && _settings.ShowCopyToast)
             {
                 string preview = (entry.PreviewText ?? "").Replace("\r", " ").Replace("\n", " ");
                 if (preview.Length > 48) preview = preview.Substring(0, 48) + "…";
-                _trayIcon.ShowBalloonTip(1500, "ClipLite",
-                    "已复制到剪贴板" + (preview.Length > 0 ? "：" + preview : ""),
-                    ToolTipIcon.Info);
+                if (_toast == null || _toast.IsDisposed)
+                    _toast = new ToastForm();
+                _toast.ShowToast(preview);
             }
         }
 
@@ -588,6 +589,9 @@ namespace ClipLite
             _clipboardMonitor.Dispose();
             _thumbCache.Dispose();
             _historyForm.Dispose();
+            if (_toast != null && !_toast.IsDisposed)
+                _toast.Dispose();
+            _toast = null;
             if (_appIcon != null)
                 _appIcon.Dispose();
             Application.Exit();

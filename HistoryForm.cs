@@ -40,6 +40,8 @@ namespace ClipLite
         private ClipboardEntry _contextEntry;
         private bool _dragging;
         private Point _dragOffset;
+        private bool _suppressDeactivateHide;
+        private Timer _deactivateGuardTimer;
 
         private Font _titleFont;
         private Font _previewFont;
@@ -1023,6 +1025,26 @@ namespace ClipLite
             _thumbRequests.Remove(entry.ImageFile);
         }
 
+        public void SuppressDeactivateFor(int milliseconds)
+        {
+            _suppressDeactivateHide = true;
+            if (_deactivateGuardTimer == null)
+            {
+                _deactivateGuardTimer = new Timer { Interval = milliseconds };
+                _deactivateGuardTimer.Tick += delegate
+                {
+                    _deactivateGuardTimer.Stop();
+                    _suppressDeactivateHide = false;
+                };
+            }
+            else
+            {
+                _deactivateGuardTimer.Stop();
+                _deactivateGuardTimer.Interval = Math.Max(50, milliseconds);
+            }
+            _deactivateGuardTimer.Start();
+        }
+
         private void DisposeThumbnails()
         {
             foreach (var image in _thumbnails.Values)
@@ -1046,6 +1068,7 @@ namespace ClipLite
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
+            if (_suppressDeactivateHide) return;
             Hide();
         }
 
@@ -1054,6 +1077,12 @@ namespace ClipLite
             if (disposing)
             {
                 DisposeThumbnails();
+                if (_deactivateGuardTimer != null)
+                {
+                    _deactivateGuardTimer.Stop();
+                    _deactivateGuardTimer.Dispose();
+                    _deactivateGuardTimer = null;
+                }
                 if (_toolTip != null) _toolTip.Dispose();
                 if (_filterMenu != null) _filterMenu.Dispose();
                 if (_itemMenu != null) _itemMenu.Dispose();

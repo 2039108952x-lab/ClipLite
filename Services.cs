@@ -238,9 +238,9 @@ namespace ClipLite
                     // Detect formats
                     try { if (Clipboard.ContainsText()) { formats |= ClipboardFormatFlags.Text; text = Clipboard.GetText(); } } catch { }
 
-            // ── Non-text format detection ──
-            if (CaptureMode != "text_only")
-            {
+                // ── Non-text format detection ──
+                if (CaptureMode != "text_only")
+                {
                     if (data.GetDataPresent(DataFormats.Rtf))
                     {
                         formats |= ClipboardFormatFlags.RichText;
@@ -277,13 +277,21 @@ namespace ClipLite
                         {
                             image = null;
                         }
-                    var audioStream = data.GetData(DataFormats.WaveAudio) as System.IO.MemoryStream;
+                    }
+
+                    try
+                    {
+                        var cff = Clipboard.GetFileDropList();
+                        if (cff != null && cff.Count > 0)
+                        {
+                            formats |= ClipboardFormatFlags.FileList;
+                            files = new string[cff.Count];
+                            cff.CopyTo(files, 0);
+                        }
+                    }
+                    catch { }
                 }
-
-                try { var cff = Clipboard.GetFileDropList(); if (cff != null && cff.Count > 0) { formats |= ClipboardFormatFlags.FileList; files = new string[cff.Count]; cff.CopyTo(files, 0); } } catch { }
-
-            }
-                    break; // Success
+                break; // Success
                 }
                 catch (ExternalException)
                 {

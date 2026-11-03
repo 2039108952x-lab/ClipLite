@@ -17,7 +17,7 @@ ClipLite 是一款 **极致轻量化 + 秒开体验 + 无广告绿色便携** �
 
 | 指标     | 目标值    | 实际值     |
 | -------- | -------- | -------- |
-| EXE 体积 | < 1 MB   | **25 KB** |
+| EXE 体积 | < 1 MB   | **约 57 KB** |
 | 后台内存 | 6~12 MB  | 实测约 8~10 MB（GC 稳定后） |
 | 启动时间 | < 200 ms | **< 50 ms** |
 | 热键唤起 | < 50 ms  | **即时**（窗口预创建） |
@@ -90,9 +90,11 @@ ClipLite 是一款 **极致轻量化 + 秒开体验 + 无广告绿色便携** �
 
 ### 8. 数据持久化
 
-- 历史记录保存至 exe 同级目录下的 `cliplite_history.json`
-- JSON 格式，纯文本可读，体积小，启动快
-- 存储字段：`id`（Hash）、`text`（原文）、`time`（ISO 时间戳）、`pinned`（置顶标记）
+- 历史记录保存至 exe 同级目录下的 `cliplite_data/`
+- `index.jsonl` 为 JSON Lines 索引，`assets/` 存放图片、RTF、HTML 等大对象
+- 索引采用原子写入，并保留 `index.bak1~3.jsonl` 三份滚动备份
+- 启用「加密存储」后索引以 AES-256 加密（文件头 `ENCR`）；assets 仍为独立文件
+- 设置保存在 exe 同级的 `cliplite_settings.json`
 
 ---
 
@@ -102,16 +104,21 @@ ClipLite 是一款 **极致轻量化 + 秒开体验 + 无广告绿色便携** �
 ClipLite/
 ├── .gitignore                      # Git 忽略规则
 ├── .gitattributes                  # Git 属性配置（行尾处理）
+├── LICENSE                         # MIT 许可证
 ├── README.md                       # 本文件
+├── README_EN.md                    # English README
 │
 ├── Program.cs                      # 入口 + 应用编排
-├── Models.cs                       # 数据模型 + JSON 存储
+├── Models.cs                       # 数据模型 + 持久化
 ├── Services.cs                     # 剪贴板监听 + 热键管理
 ├── HistoryForm.cs                  # 历史面板 UI
+├── Settings.cs                     # 设置模型
+├── SettingsForm.cs                 # 设置窗口 UI
+├── ThumbnailCache.cs               # 缩略图缓存（异步 + LRU）
 │
 ├── build.bat                       # 一键编译脚本
-├── ClipLite.exe                    # 编译产物（25 KB）
-└── cliplite_history.json           # 运行后自动生成的用户数据
+├── ClipLite.exe                    # 编译产物（约 57 KB）
+└── cliplite_data/                  # 运行后自动生成的用户数据
 ```
 
 ---
@@ -200,7 +207,7 @@ cd ClipLite
 build.bat
 ```
 
-编译产物为 `ClipLite.exe`（25 KB）。
+编译产物为 `ClipLite.exe`（约 57 KB）。
 
 **环境要求：** Windows 10/11（自带 .NET Framework 4.8），无需任何额外安装。
 
@@ -214,9 +221,10 @@ build.bat
 **Q：最多能存多少条历史？**  
 默认 500 条。在 `Models.cs` 中修改 `MaxEntries` 常量可调整上限。
 
-**Q：JSON 历史文件在哪？**  
-与 `ClipLite.exe` 同目录，文件名 `cliplite_history.json`。
-删除该文件即可清空历史记录（下次启动自动重建）。
+**Q：历史数据文件在哪？**
+
+与 `ClipLite.exe` 同目录，位于 `cliplite_data/`（`index.jsonl` + `assets/`）。
+删除整个 `cliplite_data` 文件夹即可清空历史记录（下次启动自动重建）。
 
 **Q：如何开机自启？**  
 创建 `ClipLite.exe` 的快捷方式，放入 `shell:startup` 启动文件夹。

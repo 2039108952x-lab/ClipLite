@@ -212,7 +212,7 @@ namespace ClipLite
             else
             {
                 _filteredEntries = _allEntries
-                    .Where(e => e.Text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .Where(e => (e.Text ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
                     .OrderByDescending(e => e.IsPinned)
                     .ThenByDescending(e => e.Timestamp)
                     .ToList();

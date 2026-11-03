@@ -26,6 +26,9 @@ namespace ClipLite
         public ClipLiteSettings()
         {
             ExcludedApps = new List<string>();
+            ShowFileDetails = false;
+            AutoStart = true;
+            CaptureMode = "full";
             EnableEncryption = false;
             EncryptionKey = "";
             MaxEntries = 500;
@@ -82,6 +85,7 @@ namespace ClipLite
             sb.Append(",\"maxTotalSize\":").Append(MaxTotalSize);
             
             sb.Append(",\"showFileDetails\":").Append(ShowFileDetails ? "true" : "false");
+            sb.Append(",\"autoStart\":").Append(AutoStart ? "true" : "false");
             sb.Append(",\"captureMode\":\"").Append(CaptureMode ?? "full").Append("\"");
             sb.Append(",\"enableEncryption\":").Append(EnableEncryption ? "true" : "false");
             sb.Append(",\"encryptionKey\":\"").Append(SafeStorage.JsonEscape(EncryptionKey ?? "")).Append("\"");
@@ -107,7 +111,12 @@ namespace ClipLite
 
             s.Version = (int)SafeStorage.ExtractLong(json, "version");
             s.ShowFileDetails = SafeStorage.ExtractRaw(json, "showFileDetails") != "false";
-            s.AutoStart = SafeStorage.ExtractRaw(json, "autoStart") != "false";
+
+            // Older settings files have no autoStart key at all; keep the historical
+            // default (enabled) for those, but honour an explicit "false".
+            string autoStartRaw = SafeStorage.ExtractRaw(json, "autoStart");
+            s.AutoStart = (autoStartRaw == null) ? true : autoStartRaw == "true";
+
             s.CaptureMode = SafeStorage.ExtractStr(json, "captureMode") ?? "full";
             s.EnableEncryption = SafeStorage.ExtractRaw(json, "enableEncryption") == "true";
             s.EncryptionKey = SafeStorage.ExtractStr(json, "encryptionKey") ?? "";

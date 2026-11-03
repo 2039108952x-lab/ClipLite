@@ -213,29 +213,70 @@ namespace ClipLite
         public string AssetsDir { get { return _assetsDir; } }
         public string EncryptionKey { get; set; }
 
+        /// <summary>Set when the on-disk history exists but could not be decoded (lost key / corrupt file).
+        /// While true, Save() is a no-op so a failed load can never overwrite recoverable data.</summary>
+        public bool BlockWrites { get; set; }
+        public bool LastLoadFailed { get; private set; }
+        public bool LastLoadWasEncrypted { get; private set; }
+
+        private string _lastSavedFingerprint;
+
         // ── Load ──
 
         public List<ClipboardEntry> Load()
         {
+            LastLoadFailed = false;
+            LastLoadWasEncrypted = false;
+
             // Try primary index, then backups
             for (int attempt = 0; attempt <= MaxBackups; attempt++)
             {
                 string path = (attempt == 0) ? _indexFile
                             : IndexBakPath(attempt);
-                if (File.Exists(path))
+                if (!File.Exists(path)) continue;
+
+                try
                 {
-                    try
+                    byte[] raw = File.ReadAllBytes(path);
+
+                    // Encrypted payloads are decrypted here — the write path has always
+                    // encrypted, so reading without this step silently produced an empty history.
+                    if (IsEncryptedBlob(raw))
                     {
-                        string json = File.ReadAllText(path, Encoding.UTF8);
-                        return DeserializeLines(json);
+                        LastLoadWasEncrypted = true;
+                        if (string.IsNullOrEmpty(EncryptionKey))
+                        {
+                            LastLoadFailed = true;
+                            continue;
+                        }
+
+                        byte[] plain = DecryptBytes(raw);
+                        if (plain == null)
+                        {
+                            LastLoadFailed = true;
+                            continue;
+                        }
+                        raw = plain;
                     }
-                    catch
+
+                    string json = Encoding.UTF8.GetString(raw);
+                    var entries = DeserializeLines(json);
+
+                    // An empty file is a legitimately cleared history; a non-empty file that
+                    // parses to nothing is corrupt, so fall through to the next backup.
+                    if (entries.Count > 0 || json.Trim().Length == 0)
                     {
-                        // Corrupted — try next backup
-                        continue;
+                        _lastSavedFingerprint = ComputeFingerprint(json);
+                        return entries;
                     }
                 }
+                catch
+                {
+                    // Corrupted — try next backup
+                    continue;
+                }
             }
+
             return new List<ClipboardEntry>();
         }
 
@@ -243,37 +284,85 @@ namespace ClipLite
 
         public void Save(List<ClipboardEntry> entries)
         {
-            string json = SerializeLines(entries);
-            string tmpPath = _indexFile + ".tmp";
+            // A failed load leaves the in-memory list empty; writing it would destroy
+            // whatever is still on disk, so stay read-only until the user clears history.
+            if (BlockWrites) return;
 
-            byte[] saveData = Encoding.UTF8.GetBytes(json);
-            saveData = EncryptBytes(saveData);
-            File.WriteAllBytes(tmpPath, saveData);
-
-            // Rolling backup
-            for (int i = MaxBackups - 1; i >= 0; i--)
+            try
             {
-                string bakPath = IndexBakPath(i + 1);
-                string srcPath = (i == 0) ? _indexFile : IndexBakPath(i);
-                if (File.Exists(srcPath))
-                {
-                    if (i == MaxBackups - 1)
-                        File.Delete(bakPath);
-                    else
-                        if (File.Exists(bakPath)) File.Delete(bakPath); File.Move(srcPath, bakPath);
-                }
-            }
+                string json = SerializeLines(entries);
+                string fingerprint = ComputeFingerprint(json);
+                if (fingerprint == _lastSavedFingerprint && File.Exists(_indexFile))
+                    return; // Nothing changed — skip the write and the backup shuffle.
 
-            // Atomic replace
-            if (File.Exists(_indexFile)) File.Delete(_indexFile); File.Move(tmpPath, _indexFile);
+                string tmpPath = _indexFile + ".tmp";
+                byte[] saveData = EncryptBytes(Encoding.UTF8.GetBytes(json));
+                File.WriteAllBytes(tmpPath, saveData);
+
+                RollBackups();
+
+                // Atomic replace
+                if (File.Exists(_indexFile)) File.Delete(_indexFile);
+                File.Move(tmpPath, _indexFile);
+
+                _lastSavedFingerprint = fingerprint;
+            }
+            catch
+            {
+                // Disk failures must not take the clipboard listener down.
+            }
         }
 
-        // ── Append one entry (fast path for new clipboard items) ──
-
-        public void AppendEntry(ClipboardEntry entry)
+        /// <summary>Content hash plus the current encryption state, so toggling encryption
+        /// always forces a rewrite even when the entries themselves did not change.</summary>
+        private string ComputeFingerprint(string json)
         {
-            string line = SerializeEntry(entry);
-            File.AppendAllText(_indexFile, line + "\n", Encoding.UTF8);
+            return ClipboardEntry.ComputeSha1(json)
+                + "|" + (string.IsNullOrEmpty(EncryptionKey) ? "plain" : "enc");
+        }
+
+        /// <summary>index → bak1 → bak2 → bak3, oldest dropped.</summary>
+        private void RollBackups()
+        {
+            for (int i = MaxBackups - 1; i >= 0; i--)
+            {
+                string srcPath = (i == 0) ? _indexFile : IndexBakPath(i);
+                string bakPath = IndexBakPath(i + 1);
+                if (!File.Exists(srcPath)) continue;
+
+                try
+                {
+                    if (File.Exists(bakPath)) File.Delete(bakPath);
+                    File.Move(srcPath, bakPath);
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>Delete index, backups and every asset. Used by the explicit "clear history" action.</summary>
+        public void ClearAll()
+        {
+            BlockWrites = false;
+            LastLoadFailed = false;
+            LastLoadWasEncrypted = false;
+            _lastSavedFingerprint = null;
+
+            try { if (File.Exists(_indexFile)) File.Delete(_indexFile); } catch { }
+            for (int i = 1; i <= MaxBackups; i++)
+            {
+                try { if (File.Exists(IndexBakPath(i))) File.Delete(IndexBakPath(i)); } catch { }
+            }
+            try
+            {
+                if (Directory.Exists(_assetsDir))
+                {
+                    foreach (string f in Directory.GetFiles(_assetsDir))
+                    {
+                        try { File.Delete(f); } catch { }
+                    }
+                }
+            }
+            catch { }
         }
 
         // ── Asset management ──
@@ -577,6 +666,13 @@ namespace ClipLite
 
         private static readonly byte[] MagicEncrypt = Encoding.ASCII.GetBytes("ENCR");
 
+        private static bool IsEncryptedBlob(byte[] data)
+        {
+            return data != null && data.Length >= 4
+                && data[0] == MagicEncrypt[0] && data[1] == MagicEncrypt[1]
+                && data[2] == MagicEncrypt[2] && data[3] == MagicEncrypt[3];
+        }
+
         private byte[] EncryptBytes(byte[] plaintext)
         {
             if (string.IsNullOrEmpty(EncryptionKey)) return plaintext;
@@ -605,35 +701,36 @@ namespace ClipLite
             catch { return plaintext; }
         }
 
+        /// <summary>Returns the plaintext, the input unchanged when it was never encrypted,
+        /// or null when it is encrypted but cannot be decrypted (missing/wrong key).</summary>
         private byte[] DecryptBytes(byte[] data)
         {
-            if (data == null || data.Length < 4 || string.IsNullOrEmpty(EncryptionKey)) return data;
-            if (data[0] == MagicEncrypt[0] && data[1] == MagicEncrypt[1] && data[2] == MagicEncrypt[2] && data[3] == MagicEncrypt[3])
+            if (data == null) return null;
+            if (!IsEncryptedBlob(data)) return data;
+            if (string.IsNullOrEmpty(EncryptionKey)) return null;
+
+            try
             {
-                try
+                byte[] key = Convert.FromBase64String(EncryptionKey);
+                using (var aes = System.Security.Cryptography.Aes.Create())
                 {
-                    byte[] key = Convert.FromBase64String(EncryptionKey);
-                    using (var aes = System.Security.Cryptography.Aes.Create())
+                    aes.KeySize = 256;
+                    aes.Key = key;
+                    byte[] iv = new byte[16];
+                    Array.Copy(data, 4, iv, 0, 16);
+                    aes.IV = iv;
+                    using (var transform = aes.CreateDecryptor())
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        aes.KeySize = 256;
-                        aes.Key = key;
-                        byte[] iv = new byte[16];
-                        Array.Copy(data, 4, iv, 0, 16);
-                        aes.IV = iv;
-                        using (var transform = aes.CreateDecryptor())
-                        using (var ms = new System.IO.MemoryStream())
+                        using (var cs = new System.Security.Cryptography.CryptoStream(ms, transform, System.Security.Cryptography.CryptoStreamMode.Write))
                         {
-                            using (var cs = new System.Security.Cryptography.CryptoStream(ms, transform, System.Security.Cryptography.CryptoStreamMode.Write))
-                            {
-                                cs.Write(data, 20, data.Length - 20);
-                            }
-                            return ms.ToArray();
+                            cs.Write(data, 20, data.Length - 20);
                         }
+                        return ms.ToArray();
                     }
                 }
-                catch { return data; }
             }
-            return data;
+            catch { return null; }
         }
     // ── V1 backward-compatible storage (kept for migration) ──
     }

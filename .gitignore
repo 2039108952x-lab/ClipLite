@@ -57,6 +57,10 @@ bld/
 
 # User data (auto-generated at runtime)
 cliplite_history.json
+cliplite_history.json.v1.bak
+cliplite_history.json.migrated
+cliplite_data/
+cliplite_settings.json
 
 # Build artifacts
 *.exe

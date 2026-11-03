@@ -23,7 +23,7 @@ namespace ClipLite
             if (!firstInstance)
             {
                 _mutex.Close();
-                MessageBox.Show("ClipLite is already running.", "ClipLite",
+                MessageBox.Show("ClipLite 已经在运行了。", "ClipLite",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -62,6 +62,10 @@ namespace ClipLite
             // ── Load settings ──
             _settings = ClipLiteSettings.Load();
 
+            // The key must be in place before Load(): encrypted histories can only be
+            // decoded with it, and setting it afterwards made them unreadable.
+            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
+
             // V1 → V2 migration
             if (_storage.HasV1Data())
             {
@@ -74,8 +78,12 @@ namespace ClipLite
 
             var savedEntries = _storage.Load();
 
-            // Clean up orphaned assets after loading
-            _storage.CleanupOrphans(savedEntries);
+            // A failed load means the on-disk history is encrypted/corrupt beyond what we
+            // can read. Never cleanup assets or overwrite anything in that state.
+            if (_storage.LastLoadFailed)
+                _storage.BlockWrites = true;
+            else
+                _storage.CleanupOrphans(savedEntries);
 
             // ── Initialize thumbnail cache ──
             _thumbCache = new ThumbnailCache();
@@ -88,10 +96,7 @@ namespace ClipLite
             ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
             _clipboardMonitor.CaptureMode = _settings.CaptureMode;
             SetAutoStart(_settings.AutoStart);
-            ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
 
-            // Apply encryption key to storage
-            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
             var knownHashes = new HashSet<string>(savedEntries.Select(e => e.Id));
             _clipboardMonitor.SetKnownHashes(knownHashes);
             _clipboardMonitor.ClipboardDataAvailable += OnClipboardData;
@@ -101,7 +106,7 @@ namespace ClipLite
             _clipboardMonitor.WindowMessageReceived += OnWindowMessage;
             _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
             _clipboardMonitor.EnsureHandle();
-            _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
+            bool hotkeyOk = _hotkeyManager.Register(_clipboardMonitor.WindowHandle);
 
             // ── History form ──
             _historyForm = new HistoryForm(_storage, _thumbCache);
@@ -130,6 +135,22 @@ namespace ClipLite
 
             _trayIcon.ContextMenuStrip = trayMenu;
             _trayIcon.DoubleClick += (s, e) => ShowHistory();
+
+            if (!hotkeyOk)
+            {
+                _trayIcon.ShowBalloonTip(3000, "ClipLite",
+                    "全局热键 Ctrl+Shift+V 注册失败，可能被其他程序占用。可以从托盘菜单打开历史。",
+                    ToolTipIcon.Warning);
+            }
+
+            if (_storage.LastLoadFailed)
+            {
+                MessageBox.Show(
+                    "历史记录存在，但当前无法解密或解析（密钥丢失或文件损坏）。\n\n"
+                    + "本次运行已进入保护模式：不会写入磁盘，也不会删除任何数据。\n"
+                    + "如需重新开始，请在托盘菜单执行「清空历史」。",
+                    "ClipLite", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
 
             // ── Capture current clipboard at startup ──
             TryCaptureCurrentClipboard();
@@ -241,9 +262,6 @@ namespace ClipLite
                     }
                 }
                 catch { }
-
-                // Clean up image
-                try { image.Dispose(); } catch { }
             }
             else if (primaryType == "filelist" && files != null && files.Length > 0)
             {
@@ -299,6 +317,13 @@ namespace ClipLite
             }
             _historyForm.AddEntry(entry);
             _clipboardMonitor.AddHash(hash);
+
+            // The image is only needed while building the entry; release it on every path,
+            // not just when it was the primary format.
+            if (image != null)
+            {
+                try { image.Dispose(); } catch { }
+            }
 
             SaveHistory();
         }
@@ -433,13 +458,19 @@ namespace ClipLite
 
         private void ClearHistory()
         {
-            if (MessageBox.Show("Clear all clipboard history?", "ClipLite",
+            if (MessageBox.Show("确定清空全部剪贴板历史？此操作不可撤销。", "ClipLite",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                _historyForm.ClearEntries();
-                _clipboardMonitor.SetKnownHashes(new HashSet<string>());
-                SaveHistory();
+                ClearHistoryCore();
             }
+        }
+
+        private void ClearHistoryCore()
+        {
+            _storage.ClearAll();
+            _historyForm.ClearEntries();
+            _clipboardMonitor.SetKnownHashes(new HashSet<string>());
+            SaveHistory();
         }
 
         private void SaveHistory()
@@ -453,23 +484,29 @@ namespace ClipLite
             using (var form = new SettingsForm(_settings, OnSettingsChanged, _storage))
             {
                 form.ShowDialog();
-                if (form.Tag as string == "clear")
-                {
-                    _historyForm.ClearEntries();
-                    _clipboardMonitor.SetKnownHashes(new HashSet<string>());
-                    SaveHistory();
-                }
+                if ((form.Tag as string) == "clear")
+                    ClearHistoryCore();
             }
         }
 
         private void OnSettingsChanged(ClipLiteSettings newSettings)
         {
+            bool encryptionChanged = newSettings.EnableEncryption != _settings.EnableEncryption
+                                     || newSettings.EncryptionKey != _settings.EncryptionKey;
             _settings = newSettings;
+
             _clipboardMonitor.ExcludedApps = _settings.ExcludedApps;
-            _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
             ClipboardEntry.ShowFileDetails = _settings.ShowFileDetails;
             _clipboardMonitor.CaptureMode = _settings.CaptureMode;
             SetAutoStart(_settings.AutoStart);
+
+            // Re-encrypt (or decrypt) the existing history with the new key. Without this,
+            // turning encryption off would leave an encrypted file the next start can't read.
+            if (encryptionChanged && !_storage.BlockWrites)
+            {
+                _storage.EncryptionKey = _settings.EnableEncryption ? _settings.EncryptionKey : "";
+                _storage.Save(_historyForm.GetAllEntries());
+            }
         }
 
         private void SetAutoStart(bool enabled)

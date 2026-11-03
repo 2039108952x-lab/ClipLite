@@ -292,24 +292,12 @@ namespace ClipLite
 
         private void OnClearHistory()
         {
-            if (MessageBox.Show("Clear all clipboard history? This cannot be undone.",
+            if (MessageBox.Show("确定清空全部剪贴板历史？此操作不可撤销。",
                 "ClipLite", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
             {
-                if (_onSave != null)
-                {
-                    var cleared = new ClipLiteSettings
-                    {
-                        ExcludedApps = _settings.ExcludedApps,
-                        EnableEncryption = _settings.EnableEncryption,
-                        CaptureMode = _settings.CaptureMode,
-                        AutoStart = _settings.AutoStart,
-                        EncryptionKey = _settings.EncryptionKey,
-                        MaxEntries = _settings.MaxEntries,
-                        MaxTotalSize = _settings.MaxTotalSize
-                    };
-                    _onSave(cleared);
-                }
-                // Signal caller to clear history
+                // Only signal the owner: Program.ClearHistoryCore() deletes the data.
+                // The old code pushed a rebuilt settings object through _onSave, which
+                // silently reset unrelated options and never persisted them.
                 this.Tag = "clear";
             }
         }

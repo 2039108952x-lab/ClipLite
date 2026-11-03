@@ -164,9 +164,19 @@ Next to `ClipLite.exe`, in `cliplite_data/` (`index.jsonl` + `assets/`). Delete 
 **Q: How do I auto-start on boot?**
 Enable **Start with Windows** in Settings; no manual shortcut needed.
 
+Note: if ClipLite is switched off in Task Manager's Startup apps list, Windows records a separate `StartupApproved` flag and skips the Run entry at logon even though the value still exists. The app clears that flag whenever autostart is enabled, so turning the setting back on is enough.
+
 ---
 
 ## Changelog
+
+### v1.1.1 — 2026-11-03
+
+**Fixed**
+
+- Auto-start not taking effect: Windows keeps Task Manager's disabled state as a separate flag under `StartupApproved`, so the `Run` value can exist and still never launch at logon. Enabling autostart now clears that flag as well
+- The `Run` value is quoted, so an install path containing spaces no longer launches the wrong target
+- The Chinese README now describes the real behaviour instead of asking for a Startup-folder shortcut
 
 ### v1.1.0 — 2026-11-03
 

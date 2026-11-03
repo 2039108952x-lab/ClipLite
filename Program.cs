@@ -639,13 +639,43 @@ namespace ClipLite
                 {
                     if (key == null) return;
                     if (enabled)
-                        key.SetValue("ClipLite", Application.ExecutablePath);
+                    {
+                        // Quote the path: an unquoted value in a directory that contains a
+                        // space ("C:\Program Files\...") makes Windows launch the wrong target.
+                        key.SetValue("ClipLite", "\"" + Application.ExecutablePath + "\"");
+                        ClearStartupApproval();
+                    }
                     else
+                    {
                         key.DeleteValue("ClipLite", false);
+                    }
                 }
             }
             catch { }
         }
+
+        /// <summary>
+        /// A Run value on its own is not enough. Task Manager's "Disabled" switch is
+        /// stored as a separate binary flag under StartupApproved, and Windows silently
+        /// skips the entry while that flag is set — the value exists, yet nothing runs
+        /// at logon. Clear the flag whenever autostart is (re-)enabled so what we just
+        /// wrote actually launches.
+        /// </summary>
+        private static void ClearStartupApproval()
+        {
+            try
+            {
+                using (var approved = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", true))
+                {
+                    byte[] state = approved == null ? null : approved.GetValue("ClipLite") as byte[];
+                    if (state != null && state.Length > 0 && (state[0] & 1) == 0)
+                        approved.DeleteValue("ClipLite", false);
+                }
+            }
+            catch { }
+        }
+
         private void ExitApp()
         {
             _trayIcon.Visible = false;

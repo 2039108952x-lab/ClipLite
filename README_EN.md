@@ -4,15 +4,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Downloads](https://img.shields.io/github/v/release/2039108952x-lab/ClipLite)](https://github.com/2039108952x-lab/ClipLite/releases)
 
-**ClipLite** is a lightweight, portable clipboard manager for Windows. One single EXE — **about 82 KB** — no installer, no ads, instant launch.
+**ClipLite** is a lightweight, portable clipboard manager for Windows. One single EXE — **about 84 KB** — no installer, no ads, instant launch.
 
-![screenshot](screenshot.png)
+![ClipLite — ultra-lightweight clipboard manager](docs/hero.png)
 
 > [中文版](README.md) | [English](README_EN.md)
 
 ## Download
 
-Download the ready-to-run **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/raw/main/dist/ClipLite.exe)** and double-click it — no installation required. The source code is included in this repository.
+Download the ready-to-run **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/releases/latest/download/ClipLite.exe)** (single file, about 84 KB) and double-click it — no installation or setup required. The source code is included in this repository.
+
+- Requirements: Windows 10 / 11 (ships with .NET Framework 4.8); works on both 64-bit and 32-bit Windows
+- If SmartScreen shows "Windows protected your PC" on first launch, click "More info → Run anyway"; this is the normal prompt for an unsigned standalone app
 
 ---
 
@@ -20,7 +23,7 @@ Download the ready-to-run **[ClipLite.exe](https://github.com/2039108952x-lab/Cl
 
 | Metric | Value |
 |--------|-------|
-| EXE Size | **~82 KB** (single file) |
+| EXE Size | **~84 KB** (single file) |
 | Launch Time | **< 50 ms** |
 | Hotkey Response | **Instant** (pre-created window) |
 | CPU Usage | **0%** (event-driven, no polling) |
@@ -105,7 +108,7 @@ ClipLite/
 ├── UiTheme.cs           # Palette, rounded panels, cue text box
 ├── ToastForm.cs         # In-app copy-success toast
 ├── build.bat            # One-click build script
-├── ClipLite.exe         # Build output (~82 KB)
+├── ClipLite.exe         # Build output (~84 KB)
 └── cliplite_data/       # Runtime data (generated)
 ```
 
@@ -134,7 +137,7 @@ cd ClipLite
 build.bat
 ```
 
-Output: `ClipLite.exe` (~82 KB).
+Output: `ClipLite.exe` (~84 KB).
 
 **Requirements:** Windows 10/11 with .NET Framework 4.8 (pre-installed). Nothing else needed.
 
@@ -173,6 +176,15 @@ Note: if ClipLite is switched off in Task Manager's Startup apps list, Windows r
 ---
 
 ## Changelog
+
+### v1.1.2 — 2026-11-07
+
+**Release**
+
+- First GitHub Release with a directly downloadable `ClipLite.exe` asset (85,504 bytes, ~84 KB)
+- Download now points to the latest release; double-click to run, no installation or setup
+- New README hero image, plus system requirements and first-run SmartScreen notes
+- No code changes since v1.1.1
 
 ### v1.1.1 — 2026-11-03
 

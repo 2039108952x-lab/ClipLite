@@ -6,11 +6,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 
-![screenshot](screenshot.png)
+![ClipLite - 极致轻量剪贴板管理器](docs/hero.png)
 
 ## 下载
 
-直接下载仓库里的 **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/raw/main/dist/ClipLite.exe)**，双击运行即可，无需安装。源码也在本仓库中，可自行编译。
+直接下载 **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/releases/latest/download/ClipLite.exe)**（单文件，约 84 KB），双击运行即可，无需安装、无需配置。源码也在本仓库中，可自行编译。
+
+- 系统要求：Windows 10 / 11（自带 .NET Framework 4.8），64 位与 32 位系统通用
+- 首次运行若被 SmartScreen 提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」即可；这是未做代码签名的独立程序的正常提示
 
 ---
 
@@ -22,7 +25,7 @@ ClipLite 是一款 **极致轻量化 + 秒开体验 + 无广告绿色便携** �
 
 | 指标     | 目标值    | 实际值     |
 | -------- | -------- | -------- |
-| EXE 体积 | < 1 MB   | **约 82 KB** |
+| EXE 体积 | < 1 MB   | **约 84 KB** |
 | 后台内存 | 6~12 MB  | 实测约 8~10 MB（GC 稳定后） |
 | 启动时间 | < 200 ms | **< 50 ms** |
 | 热键唤起 | < 50 ms  | **即时**（窗口预创建） |
@@ -135,7 +138,7 @@ ClipLite/
 ├── ToastForm.cs                    # 复制成功的应用内浮层提示
 │
 ├── build.bat                       # 一键编译脚本
-├── ClipLite.exe                    # 编译产物（约 82 KB）
+├── ClipLite.exe                    # 编译产物（约 84 KB）
 └── cliplite_data/                  # 运行后自动生成的用户数据
 ```
 
@@ -225,7 +228,7 @@ cd ClipLite
 build.bat
 ```
 
-编译产物为 `ClipLite.exe`（约 82 KB）。
+编译产物为 `ClipLite.exe`（约 84 KB）。
 
 **环境要求：** Windows 10/11（自带 .NET Framework 4.8），无需任何额外安装。
 
@@ -252,6 +255,15 @@ build.bat
 ---
 
 ## 更新日志
+
+### v1.1.2 — 2026-11-07
+
+**发布**
+
+- 首次在 GitHub Releases 提供可直接下载的 `ClipLite.exe` 单文件附件（85,504 字节，约 84 KB）
+- 下载入口改为最新 Release，双击即用，无需安装或配置
+- README 主视觉更新，补充系统要求与 SmartScreen 首次运行说明
+- 代码与 v1.1.1 相同，无功能变更
 
 ### v1.1.1 — 2026-11-03
 

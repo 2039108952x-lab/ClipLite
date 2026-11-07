@@ -64,3 +64,4 @@ cliplite_settings.json
 
 # Build artifacts
 *.exe
+!dist/ClipLite.exe

@@ -10,6 +10,10 @@
 
 > [中文版](README.md) | [English](README_EN.md)
 
+## Download
+
+Download the ready-to-run **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/raw/main/dist/ClipLite.exe)** and double-click it — no installation required. The source code is included in this repository.
+
 ---
 
 ## Highlights

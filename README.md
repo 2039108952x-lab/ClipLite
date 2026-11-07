@@ -7,6 +7,11 @@
 
 
 ![screenshot](screenshot.png)
+
+## 下载
+
+直接下载仓库里的 **[ClipLite.exe](https://github.com/2039108952x-lab/ClipLite/raw/main/dist/ClipLite.exe)**，双击运行即可，无需安装。源码也在本仓库中，可自行编译。
+
 ---
 
 ## 简介
